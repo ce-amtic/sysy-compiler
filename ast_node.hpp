@@ -1,21 +1,8 @@
-/*
-types of nodes:
-
-constExp: int
-constInitVal constInitValList: List
-IdentDims: Dims
-<Exp>: Exp
-Arr: ExpDims
-*/
 #pragma once
 #include <vector>
 #include <map>
 #include <string>
 #include <assert.h>
-
-#define abs(x) (x > 0 ? x : -x)
-#define max(x, y) (x > y ? x : y)
-#define min(x, y) (x < y ? x : y)
 
 struct List
 {

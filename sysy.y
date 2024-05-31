@@ -4,36 +4,30 @@
 #include <algorithm>
 #include "assembly.hpp"
 #include "symbols.hpp"
-#include "ast.hpp"
+#include "ast_node.hpp"
 #include "compiler.hpp"
 
-int yylex(void);
-void yyerror(const char *s);
-
+/* marcos */
 #define PARAM_SIZE 8
 
+/* global declarations */
 char msg[512];
 FILE *detail_fp;
-
+Assembly rodata, data, bss, text;
 CompileState compiler;
 RuntimeStack breaks, continues;
 
 /* define utils */
-void exitFunc(int frameLine) {
-    text.assignFrame(frameLine, compiler);
-    compiler.exitLevel();
-    compiler.recoverOffset(); // offset = offsets.back(); offsets.pop_back();
-    if(!compiler.isReturned()) {
-        // sprintf(msg, "control reaches end of non-void function");
-        // yyerror(msg);
-        text.append("\tleave");
-        text.append("\tret");
-    }
-}
+void exitFunc(int frameLine);
 void handleIO(const char *func, ParamList* params);
 int calculateOffsetInArray(Symbol* sym, ExpDims* dims);
 void calculateOffsetInArray(Symbol* sym, ExpDims* dims, Assembly& txt);
 template <typename T> std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b);
+void asm_init();
+void asm_print(FILE *file);
+
+void yyerror(const char *s);
+int yylex(void);
 %}
 
 %union {
@@ -122,8 +116,7 @@ ConstDef: Ident ASSIGN ConstExp {
             sprintf(msg, "redeclaration of '%s'", $1);
             yyerror(msg);
         } else {
-            if(compiler.getLevel() == 0)
-            {
+            if(compiler.getLevel() == 0) {
                 rodata.append("\n.align\t4\n");
                 rodata.append(".type\t%s, @object\n", $1);
                 rodata.append(".size\t%s, 4\n", $1);
@@ -131,11 +124,7 @@ ConstDef: Ident ASSIGN ConstExp {
                 rodata.append("\t.long\t%d\n",$3->value);
                 Symbol *sym = new Symbol(Type::CONST, 0, compiler.getLevel(), $3->value);
                 compiler.insertSymbol($1, sym);
-            }
-            else
-            {
-                // offset -= 4;
-                // text.append("\tsubq\t$4, %%rsp\n");
+            } else {
                 compiler.updateOffset(-4);
                 text.append("\tmovl\t$%d, %d(%rbp)\n", $3->value, compiler.getOffset());
                 Symbol *sym = new Symbol(Type::CONST, compiler.getOffset(), compiler.getLevel(), $3->value);
@@ -163,8 +152,6 @@ ConstDef: Ident ASSIGN ConstExp {
                 compiler.insertSymbol($1, sym);
             } 
             else{
-                // offset -= 4 * $2->size;
-                // text.append("\tsubq\t$%d, %%rsp\n", 4 * $2->size);
                 compiler.updateOffset(-4 * $2->size);
                 for(int i = 0; i < values.size(); i++){
                     text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4*i);
@@ -214,7 +201,6 @@ ConstInitValList: ConstExp {
         fprintf(detail_fp, "ConstInitValList , ConstExp -> ConstInitValList\n");
         $$ = new List($1);
         $$->nexts.push_back(new List($3->value));
-        // fprintf(stderr, ": %d\n", $1->nexts.size());
     }
     | ConstInitValList COMMA ConstInitVal {
         fprintf(detail_fp, "ConstInitValList , ConstInitVal -> ConstInitValList\n");
@@ -239,8 +225,6 @@ VarDef: Ident {
             Symbol *sym = new Symbol(Type::INT, 0, compiler.getLevel());
             compiler.insertSymbol($1, sym);
         } else {
-            // offset -= 4;
-            // text.append("\tsubq\t$4, %%rsp\n");
             compiler.updateOffset(-4);
             text.append("\tmovl\t$0, %d(%%rbp)\n", compiler.getOffset());
             Symbol *sym = new Symbol(Type::INT, compiler.getOffset(), compiler.getLevel());
@@ -262,8 +246,6 @@ VarDef: Ident {
             Symbol *sym = new Symbol(Type::INT_ARRAY, 0, compiler.getLevel(), $2->sizes);
             compiler.insertSymbol($1, sym);
         } else {
-            // offset -= 4 * $2->size;
-            // text.append("\tsubq\t$%d, %%rsp\n", 4 * $2->size);
             compiler.updateOffset(-4 * $2->size);
             for(int i = 0; i < $2->size; i++) {
                 text.append("\tmovl\t$0, %d(%%rbp)\n", compiler.getOffset() + 4*i);
@@ -291,8 +273,6 @@ VarDef: Ident {
             }
         } else {
             if($3->isConst) {
-                // offset -= 4;
-                // text.append("\tsubq\t$4, %%rsp\n");
                 compiler.updateOffset(-4);
                 text.append("\tmovl\t$%d, %d(%%rbp)\n", $3->value, compiler.getOffset());
                 Symbol *sym = new Symbol(Type::INT, compiler.getOffset(), compiler.getLevel());
@@ -329,9 +309,6 @@ VarDef: Ident {
             std::vector<bool> isConsts;
             std::vector<int> values;
             $4->dfsArray($2->sizes, isConsts, values);
-
-            // offset -= $2->size * 4;
-            // text.append("\tsubq\t$%d, %%rsp\n", $2->size * 4);
             compiler.updateOffset(-4 * $2->size);
             for(int i = 0; i < $2->size; i++) {
                 if(isConsts[i]) {
@@ -381,11 +358,11 @@ InitValList: Exp { // leaf
         $$->nexts.push_back($3);
         $$->isConst = $1->isConst && $3->isConst;
     };
-FuncDef: FuncName EnterFunc LPAREN RPAREN Block {
+FuncDef: FuncName EnterFunc LPAREN RPAREN Block ExitFunc {
         fprintf(detail_fp, "FuncName ( ) Block -> FuncDef\n");
         exitFunc($2);
     }
-    | FuncName EnterFunc LPAREN ParseParams RPAREN Block {
+    | FuncName EnterFunc LPAREN ParseParams RPAREN Block ExitFunc {
         fprintf(detail_fp, "FuncName ( FuncFParams ) Block -> FuncDef\n");
         $1->params = $4;
         exitFunc($2);
@@ -428,7 +405,7 @@ EnterFunc: {
         // make sure to write ret command
         compiler.resetReturnState();
     };
-// ExitFunc: {};
+ExitFunc: { /* nothing to be done */ };
 ParseParams: FuncFParams {
         // EnterFunc finished, we need to locate params on stack and add them into SYMBOLS
         $$ = $1;
@@ -636,13 +613,9 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
     };
 EnterStmt: { 
         compiler.enterLevel();
-        // text.append("# enter block");
-        // offsets.push_back(offset);
     };
 ExitStmt: {
         compiler.exitLevel();
-        // text.append("\taddq\t$%d, %%rsp # exiting block, restore %%rsp\n", offsets.back() - offset);
-        // compiler.recoverOffset(); // offset = offsets.back(); offsets.pop_back();
     };
 NewLabel: {
         $$ = text.newLabel();
@@ -663,8 +636,6 @@ ExitWhile: {
         $$ = new BoolExp();
         $$->label = text.newLabel();
         text.append("# exit while");
-        // text.append("\taddq\t$%d, %%rsp\n", offsets.back() - offset);
-        // no need to update offset [?]
         text.append("\tjmp\t.L");
         $$->trueList.push_back(text.ln());
     };
@@ -695,7 +666,6 @@ Arr: LBRACKET Exp RBRACKET {
         $$->isConst = $2->isConst;
         $$->isConsts.push_back($2->isConst);
         $$->values.push_back($2->isConst ? $2->value : $2->offset);
-        // fprintf(stderr, "       Arr: %d %d\n", $2->value, $2->isConst);
     }
     | Arr LBRACKET Exp RBRACKET {
         fprintf(detail_fp, "Arr [ Exp ] -> Arr\n");
@@ -703,7 +673,6 @@ Arr: LBRACKET Exp RBRACKET {
         $$->isConst &= $3->isConst;
         $$->isConsts.push_back($3->isConst);
         $$->values.push_back($3->isConst ? $3->value : $3->offset);
-        // fprintf(stderr, "       Arr: %d %d\n", $$->values[0], $$->values[1]);
     };
 PrimaryExp: Ident {
         fprintf(detail_fp, "%s -> PrimaryExp\n", $1);
@@ -915,7 +884,6 @@ UnaryExp: PrimaryExp {
             sprintf(msg, "implicit declaration of function '%s'", $1);
             yyerror(msg);
         } else {
-            // text.alignStack(compiler);
             text.append("\tcall\t%s\n", $1);
             // 不需要清理参数
             if(compiler.lookup($1)->type == Type::INT_FUNCTION){
@@ -931,7 +899,6 @@ UnaryExp: PrimaryExp {
         fprintf(detail_fp, "%s ( FuncRParams ) -> UnaryExp\n", $1);
         $$ = new Exp();
         if(strcmp($1, "printf") == 0 || strcmp($1, "scanf") == 0){
-            // text.alignStack(compiler);
             handleIO($1, $3);
             $$->isConst = true;
             $$->value = 0;
@@ -940,18 +907,9 @@ UnaryExp: PrimaryExp {
             sprintf(msg, "implicit declaration of function '%s'", $1);
             yyerror(msg);
         } else {
-            // text.alignStack(compiler);
-            // pushq parameters
-            // offsets.push_back(offset); // save old offset
-            // int rsize = $3->exp.size() * PARAM_SIZE;
-            // int padding = (16 - rsize % 16) % 16;
-            // if(padding) {
-            //     compiler.updateOffset(-padding); // offset -= padding; text.append("\tsubq\t$%d, %%rsp # padding\n", padding);
-            // }
             compiler.updateParamSize($3->exp.size() * PARAM_SIZE);
             for(int i = $3->exp.size() - 1; i >= 0; i--) {
                 Exp *cur = $3->exp[i];
-                // compiler.updateOffset(-PARAM_SIZE); // offset -= PARAM_SIZE; text.append("\tsubq\t$%d, %%rsp # param %d\n", PARAM_SIZE, i);
                 if (cur->isPointer) {
                     text.append("\tmovq\t%d(%%rbp), %%r8\n", cur->offset);
                     text.append("\tmovq\t%%r8, %d(%%rsp) # param %d\n", i * PARAM_SIZE, i);
@@ -964,11 +922,6 @@ UnaryExp: PrimaryExp {
                 }
             }
             text.append("\tcall\t%s\n", $1);
-            // 清理参数
-            // text.append("\taddq\t$%d, %%rsp\n", offsets.back() - offset);
-            // offset = offsets.back();
-            // offsets.pop_back();
-            // handle returned value
             if(compiler.lookup($1)->type == Type::INT_FUNCTION){
                 $$->isConst = false;
                 $$->offset = text.saveReg("%eax", compiler);
@@ -1157,9 +1110,7 @@ AddExp: MulExp {
 RelExp: NewLabel AddExp LT AddExp {
         fprintf(detail_fp, "AddExp < AddExp -> RelExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(compiler);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
         text.append("\tcmpl\t%%r9d, %%r8d # if <\n");
@@ -1171,9 +1122,7 @@ RelExp: NewLabel AddExp LT AddExp {
     | NewLabel AddExp LE AddExp {
         fprintf(detail_fp, "AddExp <= AddExp -> RelExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
         text.append("\tcmpl\t%%r9d, %%r8d # if <=\n");
@@ -1185,9 +1134,7 @@ RelExp: NewLabel AddExp LT AddExp {
     | NewLabel AddExp GT AddExp {
         fprintf(detail_fp, "AddExp > AddExp -> RelExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
         text.append("\tcmpl\t%%r9d, %%r8d # if >\n");
@@ -1199,9 +1146,7 @@ RelExp: NewLabel AddExp LT AddExp {
     | NewLabel AddExp GE AddExp {
         fprintf(detail_fp, "AddExp >= AddExp -> RelExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
         text.append("\tcmpl\t%%r9d, %%r8d # if >=\n");
@@ -1213,9 +1158,7 @@ RelExp: NewLabel AddExp LT AddExp {
 EqExp: NewLabel AddExp {
         fprintf(detail_fp, "AddExp -> EqExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.append("\tcmpl\t$0, %%r8d # if != 0\n");
         text.append("\tjne\t.L");
@@ -1226,9 +1169,7 @@ EqExp: NewLabel AddExp {
     | NewLabel AddExp EQUAL AddExp {
         fprintf(detail_fp, "AddExp == AddExp -> EqExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
         text.append("\tcmpl\t%%r9d, %%r8d # if ==\n");
@@ -1240,9 +1181,7 @@ EqExp: NewLabel AddExp {
     | NewLabel AddExp NE AddExp {
         fprintf(detail_fp, "AddExp != AddExp -> EqExp\n");
         $$ = new BoolExp();
-        // $$->label = text.newLabel();
         $$->label = $1;
-        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
         text.append("\tcmpl\t%%r9d, %%r8d # if !=\n");
@@ -1286,8 +1225,7 @@ LOrExp: LAndExp {
 %%
 
 /* main */
-int main()
-{
+int main() {
     asm_init();
 
     detail_fp = fopen("plot/detail.txt", "w");
@@ -1303,7 +1241,19 @@ int main()
 }
 
 
-/* utils */
+/* implement utils */
+void exitFunc(int frameLine) {
+    text.assignFrame(frameLine, compiler);
+    compiler.exitLevel();
+    compiler.recoverOffset(); // offset = offsets.back(); offsets.pop_back();
+    if(!compiler.isReturned()) {
+        // sprintf(msg, "control reaches end of non-void function");
+        // yyerror(msg);
+        text.append("\tleave");
+        text.append("\tret");
+    }
+}
+
 void handleIO(const char *func, ParamList* params) {
     int argc = params->exp.size();
     if(argc > 6) {
@@ -1315,7 +1265,6 @@ void handleIO(const char *func, ParamList* params) {
         text.append("\tleaq\t%s(%%rip), %s # param %d", params->exp[0]->text, ParamRegs[0], 0);
         for(int i = 1; i < argc; i++){
             Exp* cur = params->exp[i];
-            // fprintf(stderr, "arg%d: %s, offset: %d, isConst: %d, value: %d, level: %d\n", i, cur->text, cur->offset, cur->isConst, cur->value, cur->level);
             text.loadReg(cur, "%r8d");
             text.append("\tmovsxd\t%%r8d, %%r8\n");
             text.append("\tmovq\t%%r8, %s # param %d\n", ParamRegs[i], i);
@@ -1391,7 +1340,22 @@ std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b) {
     return res;
 }
 
-void yyerror(const char *s)
-{
+void asm_init() {
+    rodata.append(".section .rodata\n");
+    data.append(".section .data\n");
+    bss.append(".section .bss\n");
+    text.append(".section .text\n");
+}
+void asm_print(FILE *file) {
+    rodata.print(file);
+    fprintf(file, "\n");
+    data.print(file);
+    fprintf(file, "\n");
+    bss.print(file);
+    fprintf(file, "\n");
+    text.print(file);
+}
+
+void yyerror(const char *s) {
     fprintf(stderr, "ERROR: %s\n", s);
 }

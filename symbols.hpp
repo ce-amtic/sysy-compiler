@@ -2,7 +2,7 @@
 #include <vector>
 #include <map>
 #include <string>
-#include "ast.hpp"
+#include "ast_node.hpp"
 
 enum struct Type
 {
@@ -15,7 +15,6 @@ enum struct Type
     INT_ARRAY,
     POINTER, // partly supported
 };
-
 struct Symbol
 {
     Type type;  // type of the symbol
@@ -27,43 +26,29 @@ struct Symbol
     std::vector<int> sizes;       // for ArrayDimensions
     ParamDefList *params;         // for FuncParams
 
-    Symbol()
-        : type(Type::VOID), offset(0), level(0), constValue(0) {}
-
-    Symbol(Type type, int level)
-        : type(type), level(level) {}
-
-    Symbol(Type type, int offset, int level)
-        : type(type), offset(offset), level(level), constValue(0) {}
-
-    Symbol(Type type, int offset, int level, std::vector<int> sizes)
-        : type(type), offset(offset), level(level), sizes(sizes) {}
-
-    Symbol(Type type, int offset, int level, int constValue)
-        : type(type), offset(offset), level(level), constValue(constValue) {}
-
-    Symbol(Type type, int offset, int level, std::vector<int> constValues, std::vector<int> sizes)
-        : type(type), offset(offset), level(level), constValues(constValues), sizes(sizes) {}
-
-    void print()
-    {
-        printf("Symbol: type=%d, offset=%d, level=%d, constValue=%d\n", (int)type, offset, level, constValue);
-    }
+    Symbol() : type(Type::VOID), offset(0), level(0), constValue(0) {}
+    Symbol(Type type, int level) : type(type), level(level) {}
+    Symbol(Type type, int offset, int level) : type(type), offset(offset), level(level), constValue(0) {}
+    Symbol(Type type, int offset, int level, std::vector<int> sizes) : type(type), offset(offset), level(level), sizes(sizes) {}
+    Symbol(Type type, int offset, int level, int constValue) : type(type), offset(offset), level(level), constValue(constValue) {}
+    Symbol(Type type, int offset, int level, std::vector<int> constValues, std::vector<int> sizes) : type(type), offset(offset), level(level), constValues(constValues), sizes(sizes) {}
 };
-
 struct Symbols
 {
     Symbol *lookup(char *name_c, int cur_level);
     bool isFunction(char *name_c, int cur_level);
     void insert(char *name_c, Symbol *symbol);
 
-    std::vector<std::map<std::string, Symbol *>> table;
+    void nextLevel();
+    void prevLevel();
 
     Symbols() { table.push_back(std::map<std::string, Symbol *>()); }
-    void nextLevel() { table.push_back(std::map<std::string, Symbol *>()); }
-    void prevLevel() { table.pop_back(); }
+
+private:
+    std::vector<std::map<std::string, Symbol *>> table;
 };
 
+/* implements */
 bool Symbols::isFunction(char *name_c, int cur_level)
 {
     std::string name(name_c);
@@ -76,7 +61,6 @@ bool Symbols::isFunction(char *name_c, int cur_level)
     }
     return false;
 }
-
 Symbol *Symbols::lookup(char *name_c, int cur_level)
 {
     std::string name(name_c);
@@ -89,9 +73,16 @@ Symbol *Symbols::lookup(char *name_c, int cur_level)
     }
     return nullptr;
 }
-
 void Symbols::insert(char *name_c, Symbol *symbol)
 {
     std::string name(name_c);
     table[symbol->level][name] = symbol;
+}
+void Symbols::nextLevel()
+{
+    table.push_back(std::map<std::string, Symbol *>());
+}
+void Symbols::prevLevel()
+{
+    table.pop_back();
 }

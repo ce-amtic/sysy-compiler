@@ -2,91 +2,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
-#include "ast.hpp"
+#include "ast_node.hpp"
 #include "symbols.hpp"
+
+#define abs(x) (x > 0 ? x : -x)
+#define max(x, y) (x > y ? x : y)
+#define min(x, y) (x < y ? x : y)
 
 struct CompileState
 {
-    int getOffset()
-    {
-        return offset;
-    }
-    void resetOffset()
-    {
-        offset = 0;
-        peakOffset = 0;
-        paramSize = 0;
-    }
-    void updateOffset(int val)
-    {
-        offset += val;
-        if (abs(offset) > abs(peakOffset))
-            peakOffset = offset;
-    }
-    void dumpOffset()
-    {
-        offsets.push_back(offset);
-        peakOffsets.push_back(peakOffset);
-        paramSizes.push_back(paramSize);
-    }
-    void recoverOffset()
-    {
-        offset = offsets.back();
-        peakOffset = peakOffsets.back();
-        paramSize = paramSizes.back();
-        offsets.pop_back();
-        peakOffsets.pop_back();
-        paramSizes.pop_back();
-    }
-    void updateParamSize(int val)
-    {
-        paramSize = max(abs(val), paramSize);
-    }
-    int getPeakOffset()
-    {
-        return abs(peakOffset) + paramSize;
-    }
+    int getOffset();
+    void resetOffset();
+    void updateOffset(int val);
+    void dumpOffset();
+    void recoverOffset();
+    void updateParamSize(int val);
+    int getPeakOffset();
 
-    int getLevel()
-    {
-        return level;
-    }
-    void enterLevel()
-    {
-        level++;
-        symbols.nextLevel();
-    }
-    void exitLevel()
-    {
-        level--;
-        symbols.prevLevel();
-    }
+    int getLevel();
+    void enterLevel();
+    void exitLevel();
 
-    bool isReturned()
-    {
-        return isCurrentFunctionReturned;
-    }
-    void resetReturnState()
-    {
-        isCurrentFunctionReturned = false;
-    }
-    void setReturned()
-    {
-        isCurrentFunctionReturned = true;
-    }
+    bool isReturned();
+    void resetReturnState();
+    void setReturned();
 
-    Symbol *lookup(char *name)
-    {
-        return symbols.lookup(name, level);
-    }
-    bool isFunction(char *name)
-    {
-        return symbols.isFunction(name, level);
-    }
-    void insertSymbol(char *name, Symbol *sym)
-    {
-        symbols.insert(name, sym);
-    }
+    Symbol *lookup(char *name);
+    bool isFunction(char *name);
+    void insertSymbol(char *name, Symbol *sym);
 
     CompileState() {}
 
@@ -108,27 +51,112 @@ struct RuntimeState
 };
 struct RuntimeStack
 {
-    void push(int line, int offset)
-    {
-        states.back().push_back(RuntimeState(line, offset));
-    }
-    void pop()
-    {
-        states.back().pop_back();
-    }
-    void nextLevel()
-    {
-        states.push_back(std::vector<RuntimeState>());
-    }
-    void prevLevel()
-    {
-        states.pop_back();
-    }
-    std::vector<RuntimeState> &back()
-    {
-        return states.back();
-    }
+    void push(int line, int offset);
+    void pop();
+    void nextLevel();
+    void prevLevel();
+    std::vector<RuntimeState> &back();
 
 private:
     std::vector<std::vector<RuntimeState>> states;
 };
+
+/* implements */
+int CompileState::getOffset()
+{
+    return offset;
+}
+void CompileState::resetOffset()
+{
+    offset = 0;
+    peakOffset = 0;
+    paramSize = 0;
+}
+void CompileState::updateOffset(int val)
+{
+    offset += val;
+    if (abs(offset) > abs(peakOffset))
+        peakOffset = offset;
+}
+void CompileState::dumpOffset()
+{
+    offsets.push_back(offset);
+    peakOffsets.push_back(peakOffset);
+    paramSizes.push_back(paramSize);
+}
+void CompileState::recoverOffset()
+{
+    offset = offsets.back();
+    peakOffset = peakOffsets.back();
+    paramSize = paramSizes.back();
+    offsets.pop_back();
+    peakOffsets.pop_back();
+    paramSizes.pop_back();
+}
+void CompileState::updateParamSize(int val)
+{
+    paramSize = max(abs(val), paramSize);
+}
+int CompileState::getPeakOffset()
+{
+    return abs(peakOffset) + paramSize;
+}
+int CompileState::getLevel()
+{
+    return level;
+}
+void CompileState::enterLevel()
+{
+    level++;
+    symbols.nextLevel();
+}
+void CompileState::exitLevel()
+{
+    level--;
+    symbols.prevLevel();
+}
+bool CompileState::isReturned()
+{
+    return isCurrentFunctionReturned;
+}
+void CompileState::resetReturnState()
+{
+    isCurrentFunctionReturned = false;
+}
+void CompileState::setReturned()
+{
+    isCurrentFunctionReturned = true;
+}
+Symbol *CompileState::lookup(char *name)
+{
+    return symbols.lookup(name, level);
+}
+bool CompileState::isFunction(char *name)
+{
+    return symbols.isFunction(name, level);
+}
+void CompileState::insertSymbol(char *name, Symbol *sym)
+{
+    symbols.insert(name, sym);
+}
+
+void RuntimeStack::push(int line, int offset)
+{
+    states.back().push_back(RuntimeState(line, offset));
+}
+void RuntimeStack::pop()
+{
+    states.back().pop_back();
+}
+void RuntimeStack::nextLevel()
+{
+    states.push_back(std::vector<RuntimeState>());
+}
+void RuntimeStack::prevLevel()
+{
+    states.pop_back();
+}
+std::vector<RuntimeState> &RuntimeStack::back()
+{
+    return states.back();
+}
