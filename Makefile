@@ -1,5 +1,5 @@
 CC = clang++
-CFLAGS = -std=c++17 -stdlib=libc++ -Wall -O2 -g # -fsanitize=address
+CFLAGS = -std=c++17 -stdlib=libc++ -Wall -O2 -g -fsanitize=address
 
 parser: sysy.tab.cpp sysy.tab.hpp lex.yy.cpp assembly.hpp ast_node.hpp symbols.hpp compiler.hpp
 	${CC} ${CFLAGS} -o parser sysy.tab.cpp lex.yy.cpp
