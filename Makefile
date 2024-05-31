@@ -1,14 +1,14 @@
 CC = clang++
 CFLAGS = -std=c++17 -stdlib=libc++ -Wall -O2 -g # -fsanitize=address
 
-parser: sysy.tab.c sysy.tab.h lex.yy.c assembly.hpp ast_node.hpp symbols.hpp compiler.hpp
-	${CC} ${CFLAGS} -o parser sysy.tab.c lex.yy.c
+parser: sysy.tab.cpp sysy.tab.hpp lex.yy.cpp assembly.hpp ast_node.hpp symbols.hpp compiler.hpp
+	${CC} ${CFLAGS} -o parser sysy.tab.cpp lex.yy.cpp
 
-sysy.tab.c sysy.tab.h: sysy.y
-	bison -d -v sysy.y
+sysy.tab.cpp sysy.tab.hpp: sysy.y
+	bison -o sysy.tab.cpp -d -v sysy.y
 
-lex.yy.c: sysy.l
-	flex --noyywrap sysy.l
+lex.yy.cpp: sysy.l
+	flex -o lex.yy.cpp --noyywrap sysy.l
 
 clean:
 	rm -f parser sysy.tab.* lex.yy.* *.o testflex *.output

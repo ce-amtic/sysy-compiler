@@ -792,7 +792,7 @@ PrimaryExp: Ident {
         $$->value = $1;
     }
     | String {
-        fprintf(detail_fp, "__base_str -> PrimaryExp\n", $1);
+        fprintf(detail_fp, "__base_str -> PrimaryExp\n");
         $$ = new Exp();
         $$->isConst = true;
         // save the name of string
@@ -1052,7 +1052,7 @@ MulExp: UnaryExp {
         }
     }
     | MulExp MOD UnaryExp {
-        fprintf(detail_fp, "MulExp % UnaryExp -> MulExp\n");        
+        fprintf(detail_fp, "MulExp %% UnaryExp -> MulExp\n");        
         if($3->isVoid) {
             sprintf(msg, "invalid use of void expression");
             yyerror(msg);
@@ -1276,7 +1276,7 @@ void handleIO(const char *func, ParamList* params) {
         for(int i = 1; i < argc; i++){
             Exp* cur = params->exp[i];
             if(!cur->isPointer) {
-                sprintf(msg, "argument of '%s' must be a pointer", i, func);
+                sprintf(msg, "argument of '%s' must be a pointer", func);
                 yyerror(msg);
                 return;
             }

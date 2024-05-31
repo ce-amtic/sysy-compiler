@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "sysy.tab.h"
+#include "sysy.tab.hpp"
 
 #define DEBUG 0
 
