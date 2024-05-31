@@ -5,6 +5,7 @@
 #include "assembly.hpp"
 #include "symbols.hpp"
 #include "ast.hpp"
+#include "compiler.hpp"
 
 int yylex(void);
 void yyerror(const char *s);
@@ -14,155 +15,25 @@ void yyerror(const char *s);
 char msg[512];
 FILE *detail_fp;
 
-struct CompilerState {
-    void resetOffset() {
-        offset = 0;
-        peakOffset = 0;
-    }
-    void updateOffset(int val) {
-        offset += val;
-        if(abs(offset) > abs(peakOffset)) peakOffset = offset;
-    }
-    void dumpOffset() {
-        offsets.push_back(offset);
-        peakOffsets.push_back(peakOffset);
-    }
-    void recoverOffset() {
-        offset = offsets.back();
-        peakOffset = peakOffsets.back();
-        offsets.pop_back();
-        peakOffsets.pop_back();
-    }
-    
+CompileState compiler;
+RuntimeStack breaks, continues;
 
-    void enterLevel() {
-        level++;
-        symbols.nextLevel();
-    }
-    void exitLevel() {
-        level--;
-        symbols.prevLevel();
-    }
-
-private:
-    int level;  // 0: global, 1+: local
-    int offset, peakOffset; // offset from the base pointer (rbp)
-    std::vector<int> offsets, peakOffsets;
-    bool isCurrentFunctionReturned = false;
-} compiler;
-
-struct RuntimeState {
-    int line;
-    int offset;
-    RuntimeState() {}
-    RuntimeState(int line, int offset) : line(line), offset(offset) {}
-};
-struct RuntimeStack {
-    void push(int line, int offset) {
-        states.back().push_back(RuntimeState(line, offset));
-    }
-    void pop() {
-        states.back().pop_back();
-    }
-    void nextLevel() {
-        states.push_back(std::vector<RuntimeState>());
-    }
-    void prevLevel() {
-        states.pop_back();
-    }
-    std::vector<RuntimeState> &back() {
-        return states.back();
-    }
-private:
-    std::vector<std::vector<RuntimeState> > states;
-}breaks, continues;
-
-void handleIO(const char *func, ParamList* params) {
-    int argc = params->exp.size();
-    if(argc > 6) {
-        sprintf(msg, "too many arguments to function '%s'", func);
-        yyerror(msg);
-        return;
-    }
-    if(!strcmp(func, "printf")) {
-        text.append("\tleaq\t%s(%%rip), %s\t\t# printf", params->exp[0]->text, ParamRegs[0]);
-        for(int i = 1; i < argc; i++){
-            Exp* cur = params->exp[i];
-            // fprintf(stderr, "arg%d: %s, offset: %d, isConst: %d, value: %d, level: %d\n", i, cur->text, cur->offset, cur->isConst, cur->value, cur->level);
-            text.loadReg(cur, "%r8d");
-            text.append("\tmovsxd\t%%r8d, %%r8\n");
-            text.append("\tmovq\t%%r8, %s\n", ParamRegs[i]);
-        }
-        text.append("\tcall\tprintf");
-    } else {
-        /* handle scanf */
-        text.append("\tleaq\t%s(%%rip), %s\t\t# scanf", params->exp[0]->text, ParamRegs[0]);
-        for(int i = 1; i < argc; i++){
-            Exp* cur = params->exp[i];
-            if(!cur->isPointer) {
-                sprintf(msg, "argument of '%s' must be a pointer", i, func);
-                yyerror(msg);
-                return;
-            }
-            text.append("\tmovq\t%d(%%rbp), %s\n", cur->offset, ParamRegs[i]);
-        }
-        text.append("\tcall\tscanf");
-    } 
-}
-
-int calculateOffsetInArray(Symbol* sym, ExpDims* dims) {
-    if(!dims->isConst) {
-        sprintf(msg, "[internal error] error calculating array index");
-        yyerror(msg);
-        return -1;
-    }
-    int offsetInArray = 0;
-    for(int i = 0; i < sym->sizes.size(); i++) {
-        offsetInArray = offsetInArray * sym->sizes[i];
-        if(i < dims->values.size()){
-            offsetInArray = offsetInArray + dims->values[i];
-        }
-    }
-    return offsetInArray;
-}
-
-void calculateOffsetInArray(Symbol* sym, ExpDims* dims, Assembly& txt) { // sym[dims...]
-    if (dims != nullptr) {
-        if(dims->isConst) {
-            int offsetInArray =  calculateOffsetInArray(sym, dims);
-            txt.append("\tmovl\t$%d, %%ecx\n", offsetInArray);
-        } else {
-            // generate code to calculate 'offsetInArray'
-            txt.append("\tmovl\t$0, %%ecx\n"); // int of = 0;
-            for(int i = 0; i < sym->sizes.size(); i++) {
-                // offsetInArray = offsetInArray * sym->sizes[i] + dims->values[i];
-                txt.append("\timull\t$%d, %%ecx\n", sym->sizes[i]);
-                if(i < dims->values.size()){
-                    if(dims->isConsts[i])
-                        txt.append("\tmovl\t$%d, %%r8d\n", dims->values[i]);
-                    else 
-                        txt.append("\tmovl\t%d(%%rbp), %%r8d\n", dims->values[i]);
-                    txt.append("\taddl\t%%r8d, %%ecx\n");
-                }
-            }
-        }
-        text.append("\tmovslq\t%%ecx, %%rcx\n");
-        // 'offsetInArray' is %rcx
-    } else {
-        sprintf(msg, "[internal error] cannot parse array index");
-        yyerror(msg);
+/* define utils */
+void exitFunc(int frameLine) {
+    text.assignFrame(frameLine, compiler);
+    compiler.exitLevel();
+    compiler.recoverOffset(); // offset = offsets.back(); offsets.pop_back();
+    if(!compiler.isReturned()) {
+        // sprintf(msg, "control reaches end of non-void function");
+        // yyerror(msg);
+        text.append("\tleave");
+        text.append("\tret");
     }
 }
-
-template <typename T>
-std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b) {
-    std::vector<T> res;
-    for(auto x: a) res.push_back(x);
-    for(auto x: b) res.push_back(x);
-    std::sort(res.begin(), res.end());
-    res.erase(std::unique(res.begin(), res.end()), res.end());
-    return res;
-}
+void handleIO(const char *func, ParamList* params);
+int calculateOffsetInArray(Symbol* sym, ExpDims* dims);
+void calculateOffsetInArray(Symbol* sym, ExpDims* dims, Assembly& txt);
+template <typename T> std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b);
 %}
 
 %union {
@@ -189,7 +60,7 @@ std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b) {
 %token ADD SUB MUL DIV NOT MOD
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET SEMICOLON COMMA ASSIGN DOT HASH ADDRESSOF
 
-%type <num> UnaryOp NewLabel
+%type <num> UnaryOp NewLabel EnterFunc
 %type <exp> PrimaryExp Exp ConstExp AddExp MulExp UnaryExp
 %type <list> ConstInitVal ConstInitValList
 %type <dims> ConstDims FuncIdentDims
@@ -247,40 +118,40 @@ ConstDeflist: ConstDef {
     };
 ConstDef: Ident ASSIGN ConstExp {
         fprintf(detail_fp, "%s = ConstInitVal -> ConstDef\n", $1);
-        if(symbols.lookup($1, level) != nullptr) {
+        if(compiler.lookup($1) != nullptr) {
             sprintf(msg, "redeclaration of '%s'", $1);
             yyerror(msg);
         } else {
-            if(level == 0)
+            if(compiler.getLevel() == 0)
             {
                 rodata.append("\n.align\t4\n");
                 rodata.append(".type\t%s, @object\n", $1);
                 rodata.append(".size\t%s, 4\n", $1);
                 rodata.append("%s:\n", $1);
                 rodata.append("\t.long\t%d\n",$3->value);
-                Symbol *sym = new Symbol(Type::CONST, 0, level, $3->value);
-                symbols.insert($1, sym);
+                Symbol *sym = new Symbol(Type::CONST, 0, compiler.getLevel(), $3->value);
+                compiler.insertSymbol($1, sym);
             }
             else
             {
                 // offset -= 4;
                 // text.append("\tsubq\t$4, %%rsp\n");
-                updateOffset(-4);
-                text.append("\tmovl\t$%d, %d(%rbp)\n", $3->value, offset);
-                Symbol *sym = new Symbol(Type::CONST, offset, level, $3->value);
-                symbols.insert($1, sym);
+                compiler.updateOffset(-4);
+                text.append("\tmovl\t$%d, %d(%rbp)\n", $3->value, compiler.getOffset());
+                Symbol *sym = new Symbol(Type::CONST, compiler.getOffset(), compiler.getLevel(), $3->value);
+                compiler.insertSymbol($1, sym);
             }
         }
     }
     | Ident ConstDims ASSIGN ConstInitVal {
         fprintf(detail_fp, "%s ConstDims = ConstInitVal -> ConstDef\n", $1);
-        if(symbols.lookup($1, level) != nullptr) {
+        if(compiler.lookup($1) != nullptr) {
             sprintf(msg, "redeclaration of '%s'", $1);
             yyerror(msg);
         } else {
             std::vector<int> values;
             $4->dfsArray($2->sizes, values);
-            if(level == 0) {
+            if(compiler.getLevel() == 0) {
                 rodata.append("\n.align\t4\n");
                 rodata.append(".type\t%s, @object\n", $1);
                 rodata.append(".size\t%s, %d\n", $1, $2->size*4);
@@ -288,18 +159,18 @@ ConstDef: Ident ASSIGN ConstExp {
                 for(auto x: values){
                     rodata.append("\t.long\t%d\n", x);
                 }
-                Symbol* sym = new Symbol(Type::CONST_ARRAY, 0, level, values, $2->sizes);
-                symbols.insert($1, sym);
+                Symbol* sym = new Symbol(Type::CONST_ARRAY, 0, compiler.getLevel(), values, $2->sizes);
+                compiler.insertSymbol($1, sym);
             } 
             else{
                 // offset -= 4 * $2->size;
                 // text.append("\tsubq\t$%d, %%rsp\n", 4 * $2->size);
-                updateOffset(-4 * $2->size);
+                compiler.updateOffset(-4 * $2->size);
                 for(int i = 0; i < values.size(); i++){
-                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], offset + 4*i);
+                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4*i);
                 }
-                Symbol* sym = new Symbol(Type::CONST_ARRAY, offset, level, values, $2->sizes);
-                symbols.insert($1, sym);
+                Symbol* sym = new Symbol(Type::CONST_ARRAY, compiler.getOffset(), compiler.getLevel(), values, $2->sizes);
+                compiler.insertSymbol($1, sym);
             }
         }
     };
@@ -358,27 +229,27 @@ VarDefList: VarDef {
     };
 VarDef: Ident {
         fprintf(detail_fp, "%s -> VarDef\n", $1);
-        if(level == 0) {
+        if(compiler.getLevel() == 0) {
             data.append("\t.globl\t%s\n", $1);
             data.append("\t.data\n");
             data.append("\t.align\t4\n");
             data.append("\t.type\t%s, @object\n", $1);
             data.append("\t.size\t%s, 4\n", $1);
             data.append("\t.long\t0\n");
-            Symbol *sym = new Symbol(Type::INT, 0, level);
-            symbols.insert($1, sym);
+            Symbol *sym = new Symbol(Type::INT, 0, compiler.getLevel());
+            compiler.insertSymbol($1, sym);
         } else {
             // offset -= 4;
             // text.append("\tsubq\t$4, %%rsp\n");
-            updateOffset(-4);
-            text.append("\tmovl\t$0, %d(%%rbp)\n", offset);
-            Symbol *sym = new Symbol(Type::INT, offset, level);
-            symbols.insert($1, sym);
+            compiler.updateOffset(-4);
+            text.append("\tmovl\t$0, %d(%%rbp)\n", compiler.getOffset());
+            Symbol *sym = new Symbol(Type::INT, compiler.getOffset(), compiler.getLevel());
+            compiler.insertSymbol($1, sym);
         }
     }
     | Ident ConstDims {
         fprintf(detail_fp, "%s ConstDims -> VarDef\n", $1);
-        if(level == 0) {
+        if(compiler.getLevel() == 0) {
             data.append("\t.globl\t%s\n", $1);
             data.append("\t.data\n");
             data.append("\t.align\t4\n");
@@ -388,22 +259,22 @@ VarDef: Ident {
             for(int i=0; i<$2->size; i++){
                 data.append("\t.long\t0\n");
             }
-            Symbol *sym = new Symbol(Type::INT_ARRAY, 0, level, $2->sizes);
-            symbols.insert($1, sym);
+            Symbol *sym = new Symbol(Type::INT_ARRAY, 0, compiler.getLevel(), $2->sizes);
+            compiler.insertSymbol($1, sym);
         } else {
             // offset -= 4 * $2->size;
             // text.append("\tsubq\t$%d, %%rsp\n", 4 * $2->size);
-            updateOffset(-4 * $2->size);
+            compiler.updateOffset(-4 * $2->size);
             for(int i = 0; i < $2->size; i++) {
-                text.append("\tmovl\t$0, %d(%%rbp)\n", offset + 4*i);
+                text.append("\tmovl\t$0, %d(%%rbp)\n", compiler.getOffset() + 4*i);
             }
-            Symbol *sym = new Symbol(Type::INT_ARRAY, offset, level, $2->sizes);
-            symbols.insert($1, sym);
+            Symbol *sym = new Symbol(Type::INT_ARRAY, compiler.getOffset(), compiler.getLevel(), $2->sizes);
+            compiler.insertSymbol($1, sym);
         }
     }
     | Ident ASSIGN Exp {
         fprintf(detail_fp, "%s = Exp -> VarDef\n", $1);
-        if(level == 0) {
+        if(compiler.getLevel() == 0) {
             if($3->isConst) {
                 data.append("\t.globl\t%s\n", $1);
                 data.append("\t.data\n");
@@ -412,8 +283,8 @@ VarDef: Ident {
                 data.append("\t.size\t%s, 4\n", $1);
                 data.append("%s:\n", $1);
                 data.append("\t.long\t%d\n", $3->value);
-                Symbol *sym = new Symbol(Type::INT, 0, level);
-                symbols.insert($1, sym);
+                Symbol *sym = new Symbol(Type::INT, 0, compiler.getLevel());
+                compiler.insertSymbol($1, sym);
             } else {
                 sprintf(msg, "'%s' must be initialized by constant", $1);
                 yyerror(msg);
@@ -422,19 +293,19 @@ VarDef: Ident {
             if($3->isConst) {
                 // offset -= 4;
                 // text.append("\tsubq\t$4, %%rsp\n");
-                updateOffset(-4);
-                text.append("\tmovl\t$%d, %d(%%rbp)\n", $3->value, offset);
-                Symbol *sym = new Symbol(Type::INT, offset, level);
-                symbols.insert($1, sym);
+                compiler.updateOffset(-4);
+                text.append("\tmovl\t$%d, %d(%%rbp)\n", $3->value, compiler.getOffset());
+                Symbol *sym = new Symbol(Type::INT, compiler.getOffset(), compiler.getLevel());
+                compiler.insertSymbol($1, sym);
             } else {
-                Symbol *sym = new Symbol(Type::INT, $3->offset, level);
-                symbols.insert($1, sym);
+                Symbol *sym = new Symbol(Type::INT, $3->offset, compiler.getLevel());
+                compiler.insertSymbol($1, sym);
             }
         }
     }
     | Ident ConstDims ASSIGN InitVal {
         fprintf(detail_fp, "%s ConstDims = InitVal -> VarDef\n", $1);
-        if(level == 0) {
+        if(compiler.getLevel() == 0) {
             if($4->isConst) {
                 data.append("\t.globl\t%s\n", $1);
                 data.append("\t.data\n");
@@ -448,8 +319,8 @@ VarDef: Ident {
                 for(int i = 0; i < values.size(); i++) {
                     data.append("\t.long\t%d\n", values[i]);
                 }
-                Symbol *sym = new Symbol(Type::INT_ARRAY, 0, level, $2->sizes);
-                symbols.insert($1, sym);
+                Symbol *sym = new Symbol(Type::INT_ARRAY, 0, compiler.getLevel(), $2->sizes);
+                compiler.insertSymbol($1, sym);
             } else {
                 sprintf(msg, "'%s' must be initialized by constant", $1);
                 yyerror(msg);
@@ -461,17 +332,17 @@ VarDef: Ident {
 
             // offset -= $2->size * 4;
             // text.append("\tsubq\t$%d, %%rsp\n", $2->size * 4);
-            updateOffset(-4 * $2->size);
+            compiler.updateOffset(-4 * $2->size);
             for(int i = 0; i < $2->size; i++) {
                 if(isConsts[i]) {
-                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], offset + 4 * i);
+                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4 * i);
                 } else {
                     text.append("\tmovl\t%d(%%rbp), %%eax\n", values[i]);
-                    text.append("\tmovl\t%%eax, %d(%%rbp)\n", offset + 4 * i);
+                    text.append("\tmovl\t%%eax, %d(%%rbp)\n", compiler.getOffset() + 4 * i);
                 }
             }
-            Symbol *sym = new Symbol(Type::INT_ARRAY, offset, level, $2->sizes);
-            symbols.insert($1, sym);
+            Symbol *sym = new Symbol(Type::INT_ARRAY, compiler.getOffset(), compiler.getLevel(), $2->sizes);
+            compiler.insertSymbol($1, sym);
         }
     };
 InitVal: LBRACE RBRACE {
@@ -510,22 +381,24 @@ InitValList: Exp { // leaf
         $$->nexts.push_back($3);
         $$->isConst = $1->isConst && $3->isConst;
     };
-FuncDef: FuncName EnterFunc LPAREN RPAREN Block ExitFunc {
+FuncDef: FuncName EnterFunc LPAREN RPAREN Block {
         fprintf(detail_fp, "FuncName ( ) Block -> FuncDef\n");
+        exitFunc($2);
     }
-    | FuncName EnterFunc LPAREN ParseParams RPAREN Block ExitFunc {
+    | FuncName EnterFunc LPAREN ParseParams RPAREN Block {
         fprintf(detail_fp, "FuncName ( FuncFParams ) Block -> FuncDef\n");
         $1->params = $4;
+        exitFunc($2);
     };
 FuncName: INT Ident {
         fprintf(detail_fp, "int %s -> FuncName\n", $2);
-        if(symbols.lookup($2, level)){
+        if(compiler.lookup($2)){
             sprintf(msg, "redeclaration of '%s'", $2);
             yyerror(msg);
         } else {
-            Symbol *sym = new Symbol(Type::INT_FUNCTION, level);
-            symbols.insert($2, sym);
-            text.append("\t.globl\t%s\n", $2);
+            Symbol *sym = new Symbol(Type::INT_FUNCTION, compiler.getLevel());
+            compiler.insertSymbol($2, sym);
+            text.append("\n\t.globl\t%s\n", $2);
             text.append("\t.type\t%s, @function\n", $2);
             text.append("%s:\n", $2);
             $$ = sym;
@@ -533,40 +406,29 @@ FuncName: INT Ident {
     }
     | VOID Ident {
         fprintf(detail_fp, "int %s -> FuncName\n", $2);
-        if(symbols.lookup($2, level)){
+        if(compiler.lookup($2)){
             sprintf(msg, "redeclaration of '%s'", $2);
             yyerror(msg);
         } else {
-            Symbol *sym = new Symbol(Type::VOID_FUNCTION, level);
-            symbols.insert($2, sym);
+            Symbol *sym = new Symbol(Type::VOID_FUNCTION, compiler.getLevel());
+            compiler.insertSymbol($2, sym);
             text.append("\t.globl\t%s\n", $2);
             text.append("\t.type\t%s, @function\n", $2);
             text.append("%s:\n", $2);
         }
     };
 EnterFunc: {
-        enterLevel();
-        offsets.push_back(offset);
-        resetOffset(); // offset = 0;
+        compiler.enterLevel();
+        compiler.dumpOffset(); // offsets.push_back(offset);
+        compiler.resetOffset(); // offset = 0;
         text.append("\tpushq\t%%rbp");
         text.append("\tmovq\t%%rsp, %%rbp");
         text.append("# set %%rsp here");
         $$ = text.ln();
         // make sure to write ret command
-        haveReturn = false;
+        compiler.resetReturnState();
     };
-ExitFunc: {
-        exitLevel();
-        // offset = offsets.back();
-        // offsets.pop_back();
-
-        if(!haveReturn) {
-            // sprintf(msg, "control reaches end of non-void function");
-            // yyerror(msg);
-            text.append("\tleave");
-            text.append("\tret\n\n");
-        }
-    };
+// ExitFunc: {};
 ParseParams: FuncFParams {
         // EnterFunc finished, we need to locate params on stack and add them into SYMBOLS
         $$ = $1;
@@ -576,11 +438,11 @@ ParseParams: FuncFParams {
             argo += PARAM_SIZE;
             Symbol *sym;
             if(cur->dims.empty()) {
-                sym = new Symbol(Type::INT, argo, level);
+                sym = new Symbol(Type::INT, argo, compiler.getLevel());
             } else {
-                sym = new Symbol(Type::POINTER, argo, level, cur->dims); // array as params
+                sym = new Symbol(Type::POINTER, argo, compiler.getLevel(), cur->dims); // array as params
             }
-            symbols.insert(cur->name, sym);
+            compiler.insertSymbol(cur->name, sym);
         }
     };
 FuncFParams: FuncFParam {
@@ -676,12 +538,12 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         text.backPatch($5->falseList, $7->label);
         text.backPatch($7->trueList, endWhile);
         for(auto t: breaks.back()) {
-            text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", offset - t.offset);
+            text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
             text.appendLine(t.line, "%d", endWhile);
         }
         breaks.prevLevel();
         for(auto t: continues.back()) {
-            text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", offset - t.offset);
+            text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
             text.appendLine(t.line, "%d", $2->label);
         }
         continues.prevLevel();
@@ -690,13 +552,13 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         fprintf(detail_fp, "break ; -> Stmt\n");
         text.append("");
         text.append("\tjmp\t.L");
-        breaks.push(text.ln(), offset);
+        breaks.push(text.ln(), compiler.getOffset());
     }
     | CONTINUE SEMICOLON {
         fprintf(detail_fp, "continue ; -> Stmt\n");
         text.append("");
         text.append("\tjmp\t.L");
-        continues.push(text.ln(), offset);
+        continues.push(text.ln(), compiler.getOffset());
     }
     | LVal ASSIGN Exp SEMICOLON { // assign statements
         fprintf(detail_fp, "LVal = Exp ; -> Stmt\n");
@@ -704,7 +566,7 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         ExpDims* dims = $1->haveDims ? $1->dims : nullptr;
 
         /* phase 1: parse lvalue */
-        Symbol *sym = symbols.lookup(varName, level);
+        Symbol *sym = compiler.lookup(varName);
         if (sym == nullptr) {
             sprintf(msg, "'%s' was not declared in this scope", varName);
             yyerror(msg);
@@ -722,10 +584,10 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         if(sym->type == Type::INT) {
             text.loadReg($3, "%eax");
             if(sym->level == 0) { // on .data
-                text.append("\tleaq\t%s(%%rip), %%rbx\t\t# assign int\n", varName); // %rbx holds the address
+                text.append("\tleaq\t%s(%%rip), %%rbx # assign int\n", varName); // %rbx holds the address
                 text.append("\tmovl\t%%eax, (%%rbx)\n");
             } else {
-                text.append("\tmovl\t%%eax, %d(%%rbp)\t\t# assign int\n", sym->offset);
+                text.append("\tmovl\t%%eax, %d(%%rbp) # assign int\n", sym->offset);
             }
         } else if(sym->type == Type::INT_ARRAY) {
             // 'offsetInArray' is %rcx
@@ -733,11 +595,11 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
             if(sym->level == 0) { // on .data
                 // [$1->text](%rip, %rcx, 4)
                 text.append("\tleaq\t%s(%%rip), %%r8\n", $1);
-                text.append("\tleaq\t(%%r8, %%rcx, 4), %%rbx\t\t# assign int_array\n"); // %rbx holds the address
+                text.append("\tleaq\t(%%r8, %%rcx, 4), %%rbx # assign int_array\n"); // %rbx holds the address
                 text.append("\tmovl\t%%eax, (%%rbx)\n");
             } else { // on stack
                 // %rbp + [sym->offset] + 4 * %rcx = $[sym->offset](%rbp, %rcx, 4)
-                text.append("\tleaq\t%d(%%rbp, %%rcx, 4), %%rbx\t\t# assign int_array\n", sym->offset); // %rbx holds the address
+                text.append("\tleaq\t%d(%%rbp, %%rcx, 4), %%rbx # assign int_array\n", sym->offset); // %rbx holds the address
                 text.append("\tmovl\t%%eax, (%%rbx)\n");
             }
         } else if(sym->type == Type::POINTER) {
@@ -745,7 +607,7 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
             // base address: value of [sym->offset](%rbp) -> %r9
             // final address: 0(%r9, %rcx, 4)
             text.append("\tmovq\t%d(%%rbp), %%r9\n", sym->offset);
-            text.append("\tleaq\t(%%r9, %%rcx, 4), %%rbx\t\t# assign pointer\n");
+            text.append("\tleaq\t(%%r9, %%rcx, 4), %%rbx # assign pointer\n");
             // REAL ADDRESS is %rbx
             text.loadReg($3, "%eax");
             text.append("\tmovl\t%%eax, (%%rbx)\n");
@@ -755,14 +617,14 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         fprintf(detail_fp, "return Exp ; -> Stmt\n");
         text.loadReg($2, "%eax"); // save the return value in %eax
         text.append("\tleave");
-        text.append("\tret\n\n");
-        haveReturn = true;
+        text.append("\tret");
+        compiler.setReturned();
     }
     | RETURN SEMICOLON {
         fprintf(detail_fp, "return ; -> Stmt\n");
         text.append("\tleave");
-        text.append("\tret\n\n");
-        haveReturn = true;
+        text.append("\tret");
+        compiler.setReturned();
     }
     | Exp SEMICOLON {
         fprintf(detail_fp, "Exp ; -> Stmt\n");
@@ -773,15 +635,14 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         /* nothing to be done */
     };
 EnterStmt: { 
-        text.append("# enter block");
-        enterLevel();
-        offsets.push_back(offset);
+        compiler.enterLevel();
+        // text.append("# enter block");
+        // offsets.push_back(offset);
     };
 ExitStmt: {
-        exitLevel();
-        text.append("\taddq\t$%d, %%rsp\t\t# exiting block, restore %%rsp\n", offsets.back() - offset);
-        offset = offsets.back();
-        offsets.pop_back();
+        compiler.exitLevel();
+        // text.append("\taddq\t$%d, %%rsp # exiting block, restore %%rsp\n", offsets.back() - offset);
+        // compiler.recoverOffset(); // offset = offsets.back(); offsets.pop_back();
     };
 NewLabel: {
         $$ = text.newLabel();
@@ -802,7 +663,7 @@ ExitWhile: {
         $$ = new BoolExp();
         $$->label = text.newLabel();
         text.append("# exit while");
-        text.append("\taddq\t$%d, %%rsp\n", offsets.back() - offset);
+        // text.append("\taddq\t$%d, %%rsp\n", offsets.back() - offset);
         // no need to update offset [?]
         text.append("\tjmp\t.L");
         $$->trueList.push_back(text.ln());
@@ -848,7 +709,7 @@ PrimaryExp: Ident {
         fprintf(detail_fp, "%s -> PrimaryExp\n", $1);
         $$ = new Exp();
         $$->text = $1;
-        Symbol *sym = symbols.lookup($1, level);
+        Symbol *sym = compiler.lookup($1);
         if (sym == nullptr) {
             sprintf(msg, "'%s' was not declared in this scope", $1);
             yyerror(msg);
@@ -859,25 +720,24 @@ PrimaryExp: Ident {
             } else if(sym->type == Type::INT_ARRAY || sym->type == Type::POINTER) {
                 $$->isPointer = true;
                 // for arrays and pointers, load REAL ADDRESS and save the offset
-                offset -= 8;
-                text.append("\tsubq\t$8, %%rsp\n");
+                compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
                 if(sym->type == Type::INT_ARRAY) {
                     if(sym->level == 0) {
                         text.append("\tleaq\t%s(%%rip), %%r8\n", $1);
-                        text.append("\tmovq\t%%r8, (%%rsp)\n");
+                        text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
                     }
                     else {
                         text.append("\tleaq\t%d(%%rbp), %%r8\n", sym->offset);
-                        text.append("\tmovq\t%%r8, (%%rsp)\n");
+                        text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
                     }
                 } else {
                     text.append("\tmovq\t%d(%%rbp), %%r8\n", sym->offset);
-                    text.append("\tmovq\t%%r8, (%%rsp)\n");
+                    text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
                 }
-                $$->offset = offset;
+                $$->offset = compiler.getOffset();
             } else if(sym->type == Type::INT || sym->type == Type::CONST) {
                 text.loadReg(new Exp($1, sym->offset, 0, sym->level), "%r8d");
-                $$->offset = text.saveReg("%r8d", offset);
+                $$->offset = text.saveReg("%r8d", compiler);
                 $$->isConst = false;
                 $$->level = 1;
             } else {
@@ -890,7 +750,7 @@ PrimaryExp: Ident {
         fprintf(detail_fp, "%s Arr -> PrimaryExp\n", $1);
         $$ = new Exp();
         $$->text = $1;
-        Symbol *sym = symbols.lookup($1, level);
+        Symbol *sym = compiler.lookup($1);
         if (sym == nullptr) {
             sprintf(msg, "'%s' was not declared in this scope", $1);
             yyerror(msg);
@@ -898,7 +758,7 @@ PrimaryExp: Ident {
             sprintf(msg, "subscripted value '%s' is not an array", $1);
             yyerror(msg);
         } else if(sym->sizes.size() < $2->values.size()) {
-            sprintf(msg, "array need %d dimensions, but %d given", sym->sizes.size(), $2->values.size());
+            sprintf(msg, "array need %lu dimensions, but %lu given", sym->sizes.size(), $2->values.size());
             yyerror(msg);
         } else if(sym->sizes.size() > $2->values.size()) { // load Exp as pointer
             /* phase 1: calculate 'offsetInArray' */
@@ -920,10 +780,9 @@ PrimaryExp: Ident {
             }
             
             /* phase 3: save result (%rbx) */
-            offset -= 8;
-            text.append("\tsubq\t$8, %%rsp\n");
-            text.append("\tmovq\t%%rbx, %d(%%rbp)\n", offset);
-            $$->offset = offset;
+            compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
+            text.append("\tmovq\t%%rbx, %d(%%rbp)\n", compiler.getOffset());
+            $$->offset = compiler.getOffset();
         } else {
             /* phase 1: calculate 'offsetInArray' */
             calculateOffsetInArray(sym, $2, text);
@@ -952,7 +811,7 @@ PrimaryExp: Ident {
 
             /* phase 3: save result (%eax) */
             if(!$$->isConst) {
-                $$->offset = text.saveReg("%eax", offset);
+                $$->offset = text.saveReg("%eax", compiler);
                 $$->level = 1;
             }
         }
@@ -979,7 +838,7 @@ PrimaryExp: Ident {
     }
     | ADDRESSOF Ident {
         fprintf(detail_fp, "&%s -> PrimaryExp\n", $2);
-        Symbol *sym = symbols.lookup($2, level);
+        Symbol *sym = compiler.lookup($2);
         if(sym == nullptr) {
             sprintf(msg, "'%s' was not declared in this scope", $2);
             yyerror(msg);
@@ -988,16 +847,14 @@ PrimaryExp: Ident {
             $$->isPointer = true;
             if(sym->level == 0) {
                 text.append("\tleaq\t%s(%%rip), %%r8\n", $2);
-                offset -= 8;
-                text.append("\tsubq\t$8, %%rsp\n");
-                text.append("\tmovq\t%%r8, %d(%%rbp)\n", offset);
-                $$->offset = offset;
+                compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
+                text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
+                $$->offset = compiler.getOffset();
             } else {
                 text.append("\tleaq\t%d(%%rbp), %%r8\n", sym->offset);
-                offset -= 8;
-                text.append("\tsubq\t$8, %%rsp\n");
-                text.append("\tmovq\t%%r8, %d(%%rbp)\n", offset);
-                $$->offset = offset;
+                compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
+                text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
+                $$->offset = compiler.getOffset();
             }
         } else {
             sprintf(msg, "lvalue required as unary '&' operand");
@@ -1006,7 +863,7 @@ PrimaryExp: Ident {
     }
     | ADDRESSOF Ident Arr {
         fprintf(detail_fp, "&%s Arr -> PrimaryExp\n", $2);
-        Symbol *sym = symbols.lookup($2, level);
+        Symbol *sym = compiler.lookup($2);
         if(sym == nullptr) {
             sprintf(msg, "'%s' was not declared in this scope", $2);
             yyerror(msg);
@@ -1021,16 +878,14 @@ PrimaryExp: Ident {
             if(sym->level == 0) {
                 text.append("\tleaq\t%s(%%rip), %%r9\n", $2);
                 text.append("\tleaq\t(%%r9, %%rcx, 4), %%r8\n");
-                offset -= 8;
-                text.append("\tsubq\t$8, %%rsp\n");
-                text.append("\tmovq\t%%r8, %d(%%rbp)\n", offset);
-                $$->offset = offset;
+                compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
+                text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
+                $$->offset = compiler.getOffset();
             } else {
                 text.append("\tleaq\t%d(%%rbp, %%rcx, 4), %%r8\n", sym->offset);
-                offset -= 8;
-                text.append("\tsubq\t$8, %%rsp\n");
-                text.append("\tmovq\t%%r8, %d(%%rbp)\n", offset);
-                $$->offset = offset;
+                compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
+                text.append("\tmovq\t%%r8, %d(%%rbp)\n", compiler.getOffset());
+                $$->offset = compiler.getOffset();
             }
         } else if(sym->type == Type::POINTER) {
             $$ = new Exp();
@@ -1041,10 +896,9 @@ PrimaryExp: Ident {
             /* phase 2: save REAL ADDRESS on stack */
             text.append("\tmovq\t%d(%%rbp), %%r9\n", sym->offset);
             text.append("\tleaq\t(%%r9, %%rcx, 4), %%r8\n");
-            offset -= 8;
-            text.append("\tsubq\t$8, %%rsp\n");
-            text.append("\tmovq\t%%r8, %d(%%rbp)\n", offset);
-            $$->offset = offset;
+            compiler.updateOffset(-8); // offset -= 8; text.append("\tsubq\t$8, %%rsp\n");
+            text.append("\tmovq\t%%r8, %d(%%rbp)\n",  compiler.getOffset());
+            $$->offset =  compiler.getOffset();
         } else {
             sprintf(msg, "lvalue required as unary '&' operand");
             yyerror(msg);
@@ -1057,17 +911,17 @@ UnaryExp: PrimaryExp {
     | Ident LPAREN RPAREN { // function calls: done
         fprintf(detail_fp, "%s ( ) -> UnaryExp\n", $1);
         $$ = new Exp();
-        if(!symbols.isFunction($1, level)){
+        if(!compiler.isFunction($1)){
             sprintf(msg, "implicit declaration of function '%s'", $1);
             yyerror(msg);
         } else {
-            text.alignStack(offset);
+            // text.alignStack(compiler);
             text.append("\tcall\t%s\n", $1);
             // 不需要清理参数
-            if(symbols.lookup($1, level)->type == Type::INT_FUNCTION){
+            if(compiler.lookup($1)->type == Type::INT_FUNCTION){
                 $$->isConst = false;
-                $$->offset = text.saveReg("%eax", offset);
-                $$->level = level;
+                $$->offset = text.saveReg("%eax", compiler);
+                $$->level = compiler.getLevel();
             } else { // void function, let $$ be void
                 $$->isVoid = true;
             }
@@ -1077,50 +931,48 @@ UnaryExp: PrimaryExp {
         fprintf(detail_fp, "%s ( FuncRParams ) -> UnaryExp\n", $1);
         $$ = new Exp();
         if(strcmp($1, "printf") == 0 || strcmp($1, "scanf") == 0){
-            text.alignStack(offset);
+            // text.alignStack(compiler);
             handleIO($1, $3);
             $$->isConst = true;
             $$->value = 0;
-            $$->level = level;
-        } else if(!symbols.isFunction($1, level)) {
+            $$->level = compiler.getLevel();
+        } else if(!compiler.isFunction($1)) {
             sprintf(msg, "implicit declaration of function '%s'", $1);
             yyerror(msg);
         } else {
-            text.alignStack(offset);
+            // text.alignStack(compiler);
             // pushq parameters
-            offsets.push_back(offset); // save old offset
-            int rsize = $3->exp.size() * PARAM_SIZE;
-            int padding = (16 - rsize % 16) % 16;
-            if(padding) {
-                offset -= padding;
-                text.append("\tsubq\t$%d, %%rsp\t\t# padding\n", padding);
-            }
+            // offsets.push_back(offset); // save old offset
+            // int rsize = $3->exp.size() * PARAM_SIZE;
+            // int padding = (16 - rsize % 16) % 16;
+            // if(padding) {
+            //     compiler.updateOffset(-padding); // offset -= padding; text.append("\tsubq\t$%d, %%rsp # padding\n", padding);
+            // }
+            compiler.updateParamSize($3->exp.size() * PARAM_SIZE);
             for(int i = $3->exp.size() - 1; i >= 0; i--) {
                 Exp *cur = $3->exp[i];
-                offset -= PARAM_SIZE;
-                text.append("\tsubq\t$%d, %%rsp\t\t# param %d\n", PARAM_SIZE, i);
+                // compiler.updateOffset(-PARAM_SIZE); // offset -= PARAM_SIZE; text.append("\tsubq\t$%d, %%rsp # param %d\n", PARAM_SIZE, i);
                 if (cur->isPointer) {
                     text.append("\tmovq\t%d(%%rbp), %%r8\n", cur->offset);
-                    text.append("\tmovq\t%%r8, (%%rsp)\n");
+                    text.append("\tmovq\t%%r8, %d(%%rsp) # param %d\n", i * PARAM_SIZE, i);
                 } else if(cur->isConst) {
-                    text.append("\tmovq\t$%d, (%%rsp)\n", cur->value);
+                    text.append("\tmovq\t$%d, %d(%%rsp) # param %d\n", cur->value, i * PARAM_SIZE, i);
                 } else {
-                    // text.append("\tmovl\t%d(%%rbp), (%%rsp)\n", cur->offset);
                     text.append("\tmovl\t%d(%%rbp), %%r8d\n", cur->offset);
                     text.append("\tmovsxd\t%%r8d, %%r8\n");
-                    text.append("\tmovq\t%%r8, (%%rsp)\n");
+                    text.append("\tmovq\t%%r8, %d(%%rsp) # param %d\n", i * PARAM_SIZE, i);
                 }
             }
-            text.append("\tcall\t%s\n\n", $1);
+            text.append("\tcall\t%s\n", $1);
             // 清理参数
-            text.append("\taddq\t$%d, %%rsp\n", offsets.back() - offset);
-            offset = offsets.back();
-            offsets.pop_back();
+            // text.append("\taddq\t$%d, %%rsp\n", offsets.back() - offset);
+            // offset = offsets.back();
+            // offsets.pop_back();
             // handle returned value
-            if(symbols.lookup($1, level)->type == Type::INT_FUNCTION){
+            if(compiler.lookup($1)->type == Type::INT_FUNCTION){
                 $$->isConst = false;
-                $$->offset = text.saveReg("%eax", offset);
-                $$->level = level;
+                $$->offset = text.saveReg("%eax", compiler);
+                $$->level = compiler.getLevel();
             } else {
                 $$->isVoid = true;
             }
@@ -1145,7 +997,7 @@ UnaryExp: PrimaryExp {
                 } else {
                     text.loadReg($2, "%r8d");
                     text.append("\tnegl\t%%r8d\n");
-                    $$->offset = text.saveReg("%r8d", offset);
+                    $$->offset = text.saveReg("%r8d", compiler);
                     $$->level = 1;
                 }
                 break;
@@ -1159,7 +1011,7 @@ UnaryExp: PrimaryExp {
                     text.append("\ttestl %%eax, %%eax\n");
                     text.append("\tsete %%al\n");
                     text.append("\tmovzbl %%al, %%eax\n");
-                    $$->offset = text.saveReg("%eax", offset);
+                    $$->offset = text.saveReg("%eax", compiler);
                     $$->level = 1;
                 }
                 break;
@@ -1219,7 +1071,7 @@ MulExp: UnaryExp {
             text.loadReg($1, "%r8d");
             text.loadReg($3, "%r9d");
             text.append("\timull\t%%r9d, %%r8d\n");
-            $$->offset = text.saveReg("%r8d", offset);
+            $$->offset = text.saveReg("%r8d", compiler);
             $$->isConst = false;
             $$->level = 1;
         }
@@ -1241,7 +1093,7 @@ MulExp: UnaryExp {
             text.loadReg($3, "%r9d");
             text.append("\tcltd\n");
             text.append("\tidivl\t%%r9d\n");
-            $$->offset = text.saveReg("%eax", offset);
+            $$->offset = text.saveReg("%eax", compiler);
             $$->isConst = false;
             $$->level = 1;
         }
@@ -1263,7 +1115,7 @@ MulExp: UnaryExp {
             text.loadReg($3, "%r9d");
             text.append("\tcltd\n");
             text.append("\tidivl\t%%r9d\n");
-            $$->offset = text.saveReg("%edx", offset);
+            $$->offset = text.saveReg("%edx", compiler);
             $$->isConst = false;
             $$->level = 1;
         }
@@ -1282,7 +1134,7 @@ AddExp: MulExp {
             text.loadReg($1, "%r8d");
             text.loadReg($3, "%r9d");
             text.append("\taddl\t%%r9d, %%r8d\n");
-            $$->offset = text.saveReg("%r8d", offset);
+            $$->offset = text.saveReg("%r8d", compiler);
             $$->isConst = false;
             $$->level = 1;
         }
@@ -1297,7 +1149,7 @@ AddExp: MulExp {
             text.loadReg($1, "%r8d");
             text.loadReg($3, "%r9d");
             text.append("\tsubl\t%%r9d, %%r8d\n");
-            $$->offset = text.saveReg("%r8d", offset);
+            $$->offset = text.saveReg("%r8d", compiler);
             $$->isConst = false;
             $$->level = 1;
         }
@@ -1307,10 +1159,10 @@ RelExp: NewLabel AddExp LT AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(compiler);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
-        text.append("\tcmpl\t%%r9d, %%r8d\t\t# if <\n");
+        text.append("\tcmpl\t%%r9d, %%r8d # if <\n");
         text.append("\tjl\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1321,10 +1173,10 @@ RelExp: NewLabel AddExp LT AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
-        text.append("\tcmpl\t%%r9d, %%r8d\t\t# if <=\n");
+        text.append("\tcmpl\t%%r9d, %%r8d # if <=\n");
         text.append("\tjle\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1335,10 +1187,10 @@ RelExp: NewLabel AddExp LT AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
-        text.append("\tcmpl\t%%r9d, %%r8d\t\t# if >\n");
+        text.append("\tcmpl\t%%r9d, %%r8d # if >\n");
         text.append("\tjg\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1349,10 +1201,10 @@ RelExp: NewLabel AddExp LT AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
-        text.append("\tcmpl\t%%r9d, %%r8d\t\t# if >=\n");
+        text.append("\tcmpl\t%%r9d, %%r8d # if >=\n");
         text.append("\tjge\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1363,9 +1215,9 @@ EqExp: NewLabel AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
-        text.append("\tcmpl\t$0, %%r8d\t\t# if != 0\n");
+        text.append("\tcmpl\t$0, %%r8d # if != 0\n");
         text.append("\tjne\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1376,10 +1228,10 @@ EqExp: NewLabel AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
-        text.append("\tcmpl\t%%r9d, %%r8d\t\t# if ==\n");
+        text.append("\tcmpl\t%%r9d, %%r8d # if ==\n");
         text.append("\tje\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1390,10 +1242,10 @@ EqExp: NewLabel AddExp {
         $$ = new BoolExp();
         // $$->label = text.newLabel();
         $$->label = $1;
-        text.alignStack(offset);
+        // text.alignStack(offset);
         text.loadReg($2, "%r8d");
         text.loadReg($4, "%r9d");
-        text.append("\tcmpl\t%%r9d, %%r8d\t\t# if !=\n");
+        text.append("\tcmpl\t%%r9d, %%r8d # if !=\n");
         text.append("\tjne\t.L");
         $$->trueList.push_back(text.ln());
         text.append("\tjmp\t.L");
@@ -1433,10 +1285,7 @@ LOrExp: LAndExp {
     };
 %%
 
-void yyerror(const char *s)
-{
-    fprintf(stderr, "ERROR: %s\n", s);
-}
+/* main */
 int main()
 {
     asm_init();
@@ -1451,4 +1300,98 @@ int main()
     fclose(asm_fp);
 
     return 0;
+}
+
+
+/* utils */
+void handleIO(const char *func, ParamList* params) {
+    int argc = params->exp.size();
+    if(argc > 6) {
+        sprintf(msg, "too many arguments to function '%s'", func);
+        yyerror(msg);
+        return;
+    }
+    if(!strcmp(func, "printf")) {
+        text.append("\tleaq\t%s(%%rip), %s # param %d", params->exp[0]->text, ParamRegs[0], 0);
+        for(int i = 1; i < argc; i++){
+            Exp* cur = params->exp[i];
+            // fprintf(stderr, "arg%d: %s, offset: %d, isConst: %d, value: %d, level: %d\n", i, cur->text, cur->offset, cur->isConst, cur->value, cur->level);
+            text.loadReg(cur, "%r8d");
+            text.append("\tmovsxd\t%%r8d, %%r8\n");
+            text.append("\tmovq\t%%r8, %s # param %d\n", ParamRegs[i], i);
+        }
+        text.append("\tcall\tprintf");
+    } else {
+        /* handle scanf */
+        text.append("\tleaq\t%s(%%rip), %s # param %d", params->exp[0]->text, ParamRegs[0], 0);
+        for(int i = 1; i < argc; i++){
+            Exp* cur = params->exp[i];
+            if(!cur->isPointer) {
+                sprintf(msg, "argument of '%s' must be a pointer", i, func);
+                yyerror(msg);
+                return;
+            }
+            text.append("\tmovq\t%d(%%rbp), %s # param %d\n", cur->offset, ParamRegs[i], i);
+        }
+        text.append("\tcall\tscanf");
+    } 
+}
+
+int calculateOffsetInArray(Symbol* sym, ExpDims* dims) {
+    if(!dims->isConst) {
+        sprintf(msg, "[internal error] error calculating array index");
+        yyerror(msg);
+        return -1;
+    }
+    int offsetInArray = 0;
+    for(int i = 0; i < sym->sizes.size(); i++) {
+        offsetInArray = offsetInArray * sym->sizes[i];
+        if(i < dims->values.size()){
+            offsetInArray = offsetInArray + dims->values[i];
+        }
+    }
+    return offsetInArray;
+}
+
+void calculateOffsetInArray(Symbol* sym, ExpDims* dims, Assembly& txt) { // sym[dims...]
+    if (dims != nullptr) {
+        if(dims->isConst) {
+            int offsetInArray =  calculateOffsetInArray(sym, dims);
+            txt.append("\tmovl\t$%d, %%ecx\n", offsetInArray);
+        } else {
+            // generate code to calculate 'offsetInArray'
+            txt.append("\tmovl\t$0, %%ecx\n"); // int of = 0;
+            for(int i = 0; i < sym->sizes.size(); i++) {
+                // offsetInArray = offsetInArray * sym->sizes[i] + dims->values[i];
+                txt.append("\timull\t$%d, %%ecx\n", sym->sizes[i]);
+                if(i < dims->values.size()){
+                    if(dims->isConsts[i])
+                        txt.append("\tmovl\t$%d, %%r8d\n", dims->values[i]);
+                    else 
+                        txt.append("\tmovl\t%d(%%rbp), %%r8d\n", dims->values[i]);
+                    txt.append("\taddl\t%%r8d, %%ecx\n");
+                }
+            }
+        }
+        text.append("\tmovslq\t%%ecx, %%rcx\n");
+        // 'offsetInArray' is %rcx
+    } else {
+        sprintf(msg, "[internal error] cannot parse array index");
+        yyerror(msg);
+    }
+}
+
+template <typename T>
+std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b) {
+    std::vector<T> res;
+    for(auto x: a) res.push_back(x);
+    for(auto x: b) res.push_back(x);
+    std::sort(res.begin(), res.end());
+    res.erase(std::unique(res.begin(), res.end()), res.end());
+    return res;
+}
+
+void yyerror(const char *s)
+{
+    fprintf(stderr, "ERROR: %s\n", s);
 }

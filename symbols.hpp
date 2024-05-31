@@ -62,7 +62,7 @@ struct Symbols
     Symbols() { table.push_back(std::map<std::string, Symbol *>()); }
     void nextLevel() { table.push_back(std::map<std::string, Symbol *>()); }
     void prevLevel() { table.pop_back(); }
-} symbols;
+};
 
 bool Symbols::isFunction(char *name_c, int cur_level)
 {

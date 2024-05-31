@@ -297,46 +297,41 @@ i:
 .section .bss
 
 .section .text
+
 	.globl	main
 	.type	main, @function
 main:
 	pushq	%rbp
 	movq	%rsp, %rbp
+	subq	$32, %rsp                        # fixed frame size
 	movl	$2, %ecx
 	movslq	%ecx, %rcx
 	leaq	c0(%rip), %r8
 	leaq	(%r8, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
 	movl	%eax, -4(%rbp)
 	movl	$3, %ecx
 	movslq	%ecx, %rcx
 	leaq	g0(%rip), %r8
 	leaq	(%r8, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
 	movl	%eax, -8(%rbp)
 	movl	-4(%rbp), %r8d
 	movl	-8(%rbp), %r9d
 	addl	%r9d, %r8d
-	subq	$4, %rsp
 	movl	%r8d, -12(%rbp)
 	leaq	scj82c9s0j(%rip), %rbx
 	movl	0(%rbx), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -16(%rbp)
 	movl	-12(%rbp), %r8d
 	movl	-16(%rbp), %r9d
 	addl	%r9d, %r8d
-	subq	$4, %rsp
 	movl	%r8d, -20(%rbp)
-	subq	$12, %rsp                        # align stack
-	leaq	__fmt_string0(%rip), %rdi		# printf
+	leaq	__fmt_string0(%rip), %rdi        # param 0
 	movl	-20(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, %rsi
+	movq	%r8, %rsi                        # param 1
 	call	printf
 	movl	$5, %eax
 	leave
 	ret
-

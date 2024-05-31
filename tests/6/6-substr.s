@@ -7,80 +7,63 @@ __fmt_string1:	.string "%d\n"
 .section .bss
 
 .section .text
+
 	.globl	MAX
 	.type	MAX, @function
 MAX:
 	pushq	%rbp
 	movq	%rsp, %rbp
+	subq	$32, %rsp                        # fixed frame size
 .L1:
 	movl	16(%rbp), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -4(%rbp)
 	movl	24(%rbp), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -8(%rbp)
-	subq	$8, %rsp                         # align stack
 	movl	-4(%rbp), %r8d
 	movl	-8(%rbp), %r9d
-	cmpl	%r9d, %r8d		               # if ==
+	cmpl	%r9d, %r8d                       # if ==
 	je	.L2
 	jmp	.L3
 .L2:
-                                             # enter block
 	movl	16(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -20(%rbp)
-	movl	-20(%rbp), %eax
+	movl	%r8d, -12(%rbp)
+	movl	-12(%rbp), %eax
 	leave
 	ret
-
-	addq	$4, %rsp		                 # exiting block, restore %rsp
 	jmp	.L8
 .L3:
-                                             # enter block
 .L4:
 	movl	16(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -20(%rbp)
+	movl	%r8d, -16(%rbp)
 	movl	24(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -24(%rbp)
-	subq	$8, %rsp                         # align stack
-	movl	-20(%rbp), %r8d
-	movl	-24(%rbp), %r9d
-	cmpl	%r9d, %r8d		               # if >
+	movl	%r8d, -20(%rbp)
+	movl	-16(%rbp), %r8d
+	movl	-20(%rbp), %r9d
+	cmpl	%r9d, %r8d                       # if >
 	jg	.L5
 	jmp	.L6
 .L5:
-                                             # enter block
 	movl	16(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -36(%rbp)
-	movl	-36(%rbp), %eax
+	movl	%r8d, -24(%rbp)
+	movl	-24(%rbp), %eax
 	leave
 	ret
-
-	addq	$4, %rsp		                 # exiting block, restore %rsp
 	jmp	.L7
 .L6:
-                                             # enter block
 	movl	24(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -36(%rbp)
-	movl	-36(%rbp), %eax
+	movl	%r8d, -28(%rbp)
+	movl	-28(%rbp), %eax
 	leave
 	ret
-
-	addq	$4, %rsp		                 # exiting block, restore %rsp
 .L7:
-	addq	$16, %rsp		                # exiting block, restore %rsp
 .L8:
+
 	.globl	max_sum_nonadjacent
 	.type	max_sum_nonadjacent, @function
 max_sum_nonadjacent:
 	pushq	%rbp
 	movq	%rsp, %rbp
-	subq	$64, %rsp
+	subq	$176, %rsp                       # fixed frame size
 	movl	$0, -64(%rbp)
 	movl	$0, -60(%rbp)
 	movl	$0, -56(%rbp)
@@ -102,173 +85,137 @@ max_sum_nonadjacent:
 	movq	16(%rbp), %r9
 	leaq	(%r9, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
 	movl	%eax, -68(%rbp)
 	movl	$0, %ecx
 	movslq	%ecx, %rcx
 	movl	-68(%rbp), %eax
-	leaq	-64(%rbp, %rcx, 4), %rbx		 # assign int_array
+	leaq	-64(%rbp, %rcx, 4), %rbx         # assign int_array
 	movl	%eax, (%rbx)
 	movl	$0, %ecx
 	movslq	%ecx, %rcx
 	movq	16(%rbp), %r9
 	leaq	(%r9, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
 	movl	%eax, -72(%rbp)
 	movl	$1, %ecx
 	movslq	%ecx, %rcx
 	movq	16(%rbp), %r9
 	leaq	(%r9, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
 	movl	%eax, -76(%rbp)
-	subq	$4, %rsp                         # align stack
-	subq	$8, %rsp		                 # param 1
 	movl	-76(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp		                 # param 0
+	movq	%r8, 8(%rsp)                     # param 1
 	movl	-72(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, (%rsp)
+	movq	%r8, 0(%rsp)                     # param 0
 	call	MAX
-
-	addq	$16, %rsp
-	subq	$4, %rsp
-	movl	%eax, -84(%rbp)
+	movl	%eax, -80(%rbp)
 	movl	$1, %ecx
 	movslq	%ecx, %rcx
-	movl	-84(%rbp), %eax
-	leaq	-64(%rbp, %rcx, 4), %rbx		 # assign int_array
+	movl	-80(%rbp), %eax
+	leaq	-64(%rbp, %rcx, 4), %rbx         # assign int_array
 	movl	%eax, (%rbx)
-	subq	$4, %rsp
-	movl	$2, -88(%rbp)
+	movl	$2, -84(%rbp)
 .L9:
                                              # enter while
-                                             # enter block
 .L10:
-	movl	-88(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -92(%rbp)
+	movl	-84(%rbp), %r8d
+	movl	%r8d, -88(%rbp)
 	movl	24(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -96(%rbp)
-	movl	-92(%rbp), %r8d
-	movl	-96(%rbp), %r9d
-	cmpl	%r9d, %r8d		               # if <
+	movl	%r8d, -92(%rbp)
+	movl	-88(%rbp), %r8d
+	movl	-92(%rbp), %r9d
+	cmpl	%r9d, %r8d                       # if <
 	jl	.L12
 	jmp	.L11
 .L11:
                                              # exit while
-	addq	$8, %rsp
 	jmp	.L13
 .L12:
-	movl	-88(%rbp), %r8d
-	subq	$4, %rsp
+	movl	-84(%rbp), %r8d
+	movl	%r8d, -96(%rbp)
+	movl	-84(%rbp), %r8d
 	movl	%r8d, -100(%rbp)
-	movl	-88(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -104(%rbp)
-	movl	-104(%rbp), %r8d
+	movl	-100(%rbp), %r8d
 	movl	$2, %r9d
 	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -108(%rbp)
+	movl	%r8d, -104(%rbp)
 	movl	$0, %ecx
 	imull	$16, %ecx
-	movl	-108(%rbp), %r8d
+	movl	-104(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movl	-64(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
-	movl	%eax, -112(%rbp)
-	movl	-88(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -116(%rbp)
+	movl	%eax, -108(%rbp)
+	movl	-84(%rbp), %r8d
+	movl	%r8d, -112(%rbp)
 	movl	$0, %ecx
 	imull	$-1, %ecx
-	movl	-116(%rbp), %r8d
+	movl	-112(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movq	16(%rbp), %r9
 	leaq	(%r9, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
-	movl	%eax, -120(%rbp)
-	movl	-112(%rbp), %r8d
-	movl	-120(%rbp), %r9d
+	movl	%eax, -116(%rbp)
+	movl	-108(%rbp), %r8d
+	movl	-116(%rbp), %r9d
 	addl	%r9d, %r8d
-	subq	$4, %rsp
+	movl	%r8d, -120(%rbp)
+	movl	-84(%rbp), %r8d
 	movl	%r8d, -124(%rbp)
-	movl	-88(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -128(%rbp)
-	movl	-128(%rbp), %r8d
+	movl	-124(%rbp), %r8d
 	movl	$1, %r9d
 	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -132(%rbp)
+	movl	%r8d, -128(%rbp)
 	movl	$0, %ecx
 	imull	$16, %ecx
-	movl	-132(%rbp), %r8d
+	movl	-128(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movl	-64(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
-	movl	%eax, -136(%rbp)
-	subq	$8, %rsp                         # align stack
-	subq	$8, %rsp		                 # param 1
-	movl	-136(%rbp), %r8d
+	movl	%eax, -132(%rbp)
+	movl	-132(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp		                 # param 0
-	movl	-124(%rbp), %r8d
+	movq	%r8, 8(%rsp)                     # param 1
+	movl	-120(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, (%rsp)
+	movq	%r8, 0(%rsp)                     # param 0
 	call	MAX
-
-	addq	$16, %rsp
-	subq	$4, %rsp
-	movl	%eax, -148(%rbp)
-	movl	$0, %ecx
-	imull	$16, %ecx
-	movl	-100(%rbp), %r8d
-	addl	%r8d, %ecx
-	movslq	%ecx, %rcx
-	movl	-148(%rbp), %eax
-	leaq	-64(%rbp, %rcx, 4), %rbx		 # assign int_array
-	movl	%eax, (%rbx)
-	movl	-88(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -152(%rbp)
-	movl	-152(%rbp), %r8d
-	movl	$1, %r9d
-	addl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -156(%rbp)
-	movl	-156(%rbp), %eax
-	movl	%eax, -88(%rbp)		          # assign int
-	addq	$68, %rsp		                # exiting block, restore %rsp
-	jmp	.L9
-.L13:		                                # end while
-	movl	24(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -92(%rbp)
-	movl	-92(%rbp), %r8d
-	movl	$1, %r9d
-	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -96(%rbp)
+	movl	%eax, -136(%rbp)
 	movl	$0, %ecx
 	imull	$16, %ecx
 	movl	-96(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
+	movl	-136(%rbp), %eax
+	leaq	-64(%rbp, %rcx, 4), %rbx         # assign int_array
+	movl	%eax, (%rbx)
+	movl	-84(%rbp), %r8d
+	movl	%r8d, -140(%rbp)
+	movl	-140(%rbp), %r8d
+	movl	$1, %r9d
+	addl	%r9d, %r8d
+	movl	%r8d, -144(%rbp)
+	movl	-144(%rbp), %eax
+	movl	%eax, -84(%rbp)                  # assign int
+	jmp	.L9
+.L13:                                        # end while
+	movl	24(%rbp), %r8d
+	movl	%r8d, -148(%rbp)
+	movl	-148(%rbp), %r8d
+	movl	$1, %r9d
+	subl	%r9d, %r8d
+	movl	%r8d, -152(%rbp)
+	movl	$0, %ecx
+	imull	$16, %ecx
+	movl	-152(%rbp), %r8d
+	addl	%r8d, %ecx
+	movslq	%ecx, %rcx
 	movl	-64(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
-	movl	%eax, -100(%rbp)
-	movl	-100(%rbp), %eax
+	movl	%eax, -156(%rbp)
+	movl	-156(%rbp), %eax
 	leave
 	ret
 
@@ -277,7 +224,7 @@ max_sum_nonadjacent:
 longest_common_subseq:
 	pushq	%rbp
 	movq	%rsp, %rbp
-	subq	$1024, %rsp
+	subq	$1200, %rsp                      # fixed frame size
 	movl	$0, -1024(%rbp)
 	movl	$0, -1020(%rbp)
 	movl	$0, -1016(%rbp)
@@ -534,274 +481,219 @@ longest_common_subseq:
 	movl	$0, -12(%rbp)
 	movl	$0, -8(%rbp)
 	movl	$0, -4(%rbp)
-	subq	$4, %rsp
 	movl	$0, -1028(%rbp)
-	subq	$4, %rsp
 	movl	$0, -1032(%rbp)
 	movl	$1, %eax
-	movl	%eax, -1028(%rbp)		        # assign int
+	movl	%eax, -1028(%rbp)                # assign int
 .L14:
                                              # enter while
-                                             # enter block
 .L15:
 	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -1036(%rbp)
 	movl	24(%rbp), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -1040(%rbp)
 	movl	-1036(%rbp), %r8d
 	movl	-1040(%rbp), %r9d
-	cmpl	%r9d, %r8d		               # if <=
+	cmpl	%r9d, %r8d                       # if <=
 	jle	.L17
 	jmp	.L16
 .L16:
                                              # exit while
-	addq	$8, %rsp
 	jmp	.L27
 .L17:
 	movl	$1, %eax
-	movl	%eax, -1032(%rbp)		        # assign int
+	movl	%eax, -1032(%rbp)                # assign int
 .L18:
                                              # enter while
-                                             # enter block
 .L19:
 	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -1044(%rbp)
 	movl	40(%rbp), %r8d
-	subq	$4, %rsp
 	movl	%r8d, -1048(%rbp)
-	subq	$8, %rsp                         # align stack
 	movl	-1044(%rbp), %r8d
 	movl	-1048(%rbp), %r9d
-	cmpl	%r9d, %r8d		               # if <=
+	cmpl	%r9d, %r8d                       # if <=
 	jle	.L21
 	jmp	.L20
 .L20:
                                              # exit while
-	addq	$16, %rsp
 	jmp	.L26
 .L21:
 .L22:
 	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1060(%rbp)
-	movl	-1060(%rbp), %r8d
+	movl	%r8d, -1052(%rbp)
+	movl	-1052(%rbp), %r8d
 	movl	$1, %r9d
 	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1064(%rbp)
+	movl	%r8d, -1056(%rbp)
 	movl	$0, %ecx
 	imull	$-1, %ecx
-	movl	-1064(%rbp), %r8d
+	movl	-1056(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movq	16(%rbp), %r9
 	leaq	(%r9, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
-	movl	%eax, -1068(%rbp)
+	movl	%eax, -1060(%rbp)
 	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1072(%rbp)
-	movl	-1072(%rbp), %r8d
+	movl	%r8d, -1064(%rbp)
+	movl	-1064(%rbp), %r8d
 	movl	$1, %r9d
 	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1076(%rbp)
+	movl	%r8d, -1068(%rbp)
 	movl	$0, %ecx
 	imull	$-1, %ecx
-	movl	-1076(%rbp), %r8d
+	movl	-1068(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movq	32(%rbp), %r9
 	leaq	(%r9, %rcx, 4), %rbx
 	movl	(%rbx), %eax
-	subq	$4, %rsp
-	movl	%eax, -1080(%rbp)
-	subq	$8, %rsp                         # align stack
-	movl	-1068(%rbp), %r8d
-	movl	-1080(%rbp), %r9d
-	cmpl	%r9d, %r8d		               # if ==
+	movl	%eax, -1072(%rbp)
+	movl	-1060(%rbp), %r8d
+	movl	-1072(%rbp), %r9d
+	cmpl	%r9d, %r8d                       # if ==
 	je	.L23
 	jmp	.L24
 .L23:
-                                             # enter block
 	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
+	movl	%r8d, -1076(%rbp)
+	movl	-1032(%rbp), %r8d
+	movl	%r8d, -1080(%rbp)
+	movl	-1028(%rbp), %r8d
+	movl	%r8d, -1084(%rbp)
+	movl	-1084(%rbp), %r8d
+	movl	$1, %r9d
+	subl	%r9d, %r8d
+	movl	%r8d, -1088(%rbp)
+	movl	-1032(%rbp), %r8d
 	movl	%r8d, -1092(%rbp)
-	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1096(%rbp)
-	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1100(%rbp)
-	movl	-1100(%rbp), %r8d
-	movl	$1, %r9d
-	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1104(%rbp)
-	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1108(%rbp)
-	movl	-1108(%rbp), %r8d
-	movl	$1, %r9d
-	subl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1112(%rbp)
-	movl	$0, %ecx
-	imull	$16, %ecx
-	movl	-1104(%rbp), %r8d
-	addl	%r8d, %ecx
-	imull	$16, %ecx
-	movl	-1112(%rbp), %r8d
-	addl	%r8d, %ecx
-	movslq	%ecx, %rcx
-	movl	-1024(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
-	movl	%eax, -1116(%rbp)
-	movl	-1116(%rbp), %r8d
-	movl	$1, %r9d
-	addl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1120(%rbp)
-	movl	$0, %ecx
-	imull	$16, %ecx
 	movl	-1092(%rbp), %r8d
+	movl	$1, %r9d
+	subl	%r9d, %r8d
+	movl	%r8d, -1096(%rbp)
+	movl	$0, %ecx
+	imull	$16, %ecx
+	movl	-1088(%rbp), %r8d
 	addl	%r8d, %ecx
 	imull	$16, %ecx
 	movl	-1096(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
-	movl	-1120(%rbp), %eax
-	leaq	-1024(%rbp, %rcx, 4), %rbx		# assign int_array
-	movl	%eax, (%rbx)
-	addq	$32, %rsp		                # exiting block, restore %rsp
-	jmp	.L25
-.L24:
-                                             # enter block
-	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1092(%rbp)
-	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1096(%rbp)
-	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1100(%rbp)
+	movl	-1024(%rbp, %rcx, 4), %eax
+	movl	%eax, -1100(%rbp)
 	movl	-1100(%rbp), %r8d
 	movl	$1, %r9d
-	subl	%r9d, %r8d
-	subq	$4, %rsp
+	addl	%r9d, %r8d
 	movl	%r8d, -1104(%rbp)
-	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1108(%rbp)
 	movl	$0, %ecx
 	imull	$16, %ecx
-	movl	-1104(%rbp), %r8d
+	movl	-1076(%rbp), %r8d
 	addl	%r8d, %ecx
 	imull	$16, %ecx
-	movl	-1108(%rbp), %r8d
+	movl	-1080(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
-	movl	-1024(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
-	movl	%eax, -1112(%rbp)
+	movl	-1104(%rbp), %eax
+	leaq	-1024(%rbp, %rcx, 4), %rbx       # assign int_array
+	movl	%eax, (%rbx)
+	jmp	.L25
+.L24:
 	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1116(%rbp)
+	movl	%r8d, -1108(%rbp)
 	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1120(%rbp)
-	movl	-1120(%rbp), %r8d
+	movl	%r8d, -1112(%rbp)
+	movl	-1028(%rbp), %r8d
+	movl	%r8d, -1116(%rbp)
+	movl	-1116(%rbp), %r8d
 	movl	$1, %r9d
 	subl	%r9d, %r8d
-	subq	$4, %rsp
+	movl	%r8d, -1120(%rbp)
+	movl	-1032(%rbp), %r8d
 	movl	%r8d, -1124(%rbp)
 	movl	$0, %ecx
 	imull	$16, %ecx
-	movl	-1116(%rbp), %r8d
+	movl	-1120(%rbp), %r8d
 	addl	%r8d, %ecx
 	imull	$16, %ecx
 	movl	-1124(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movl	-1024(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
 	movl	%eax, -1128(%rbp)
-	subq	$8, %rsp                         # align stack
-	subq	$8, %rsp		                 # param 1
-	movl	-1128(%rbp), %r8d
-	movsxd	%r8d, %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp		                 # param 0
-	movl	-1112(%rbp), %r8d
-	movsxd	%r8d, %r8
-	movq	%r8, (%rsp)
-	call	MAX
-
-	addq	$16, %rsp
-	subq	$4, %rsp
-	movl	%eax, -1140(%rbp)
-	movl	$0, %ecx
-	imull	$16, %ecx
-	movl	-1092(%rbp), %r8d
-	addl	%r8d, %ecx
-	imull	$16, %ecx
-	movl	-1096(%rbp), %r8d
-	addl	%r8d, %ecx
-	movslq	%ecx, %rcx
-	movl	-1140(%rbp), %eax
-	leaq	-1024(%rbp, %rcx, 4), %rbx		# assign int_array
-	movl	%eax, (%rbx)
-	addq	$52, %rsp		                # exiting block, restore %rsp
-.L25:
-	movl	-1032(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1092(%rbp)
-	movl	-1092(%rbp), %r8d
-	movl	$1, %r9d
-	addl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1096(%rbp)
-	movl	-1096(%rbp), %eax
-	movl	%eax, -1032(%rbp)		        # assign int
-	addq	$56, %rsp		                # exiting block, restore %rsp
-	jmp	.L18
-.L26:		                                # end while
 	movl	-1028(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1044(%rbp)
-	movl	-1044(%rbp), %r8d
+	movl	%r8d, -1132(%rbp)
+	movl	-1032(%rbp), %r8d
+	movl	%r8d, -1136(%rbp)
+	movl	-1136(%rbp), %r8d
 	movl	$1, %r9d
-	addl	%r9d, %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1048(%rbp)
-	movl	-1048(%rbp), %eax
-	movl	%eax, -1028(%rbp)		        # assign int
-	addq	$16, %rsp		                # exiting block, restore %rsp
-	jmp	.L14
-.L27:		                                # end while
-	movl	24(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1036(%rbp)
-	movl	40(%rbp), %r8d
-	subq	$4, %rsp
-	movl	%r8d, -1040(%rbp)
+	subl	%r9d, %r8d
+	movl	%r8d, -1140(%rbp)
 	movl	$0, %ecx
 	imull	$16, %ecx
-	movl	-1036(%rbp), %r8d
+	movl	-1132(%rbp), %r8d
 	addl	%r8d, %ecx
 	imull	$16, %ecx
-	movl	-1040(%rbp), %r8d
+	movl	-1140(%rbp), %r8d
 	addl	%r8d, %ecx
 	movslq	%ecx, %rcx
 	movl	-1024(%rbp, %rcx, 4), %eax
-	subq	$4, %rsp
-	movl	%eax, -1044(%rbp)
-	movl	-1044(%rbp), %eax
+	movl	%eax, -1144(%rbp)
+	movl	-1144(%rbp), %r8d
+	movsxd	%r8d, %r8
+	movq	%r8, 8(%rsp)                     # param 1
+	movl	-1128(%rbp), %r8d
+	movsxd	%r8d, %r8
+	movq	%r8, 0(%rsp)                     # param 0
+	call	MAX
+	movl	%eax, -1148(%rbp)
+	movl	$0, %ecx
+	imull	$16, %ecx
+	movl	-1108(%rbp), %r8d
+	addl	%r8d, %ecx
+	imull	$16, %ecx
+	movl	-1112(%rbp), %r8d
+	addl	%r8d, %ecx
+	movslq	%ecx, %rcx
+	movl	-1148(%rbp), %eax
+	leaq	-1024(%rbp, %rcx, 4), %rbx       # assign int_array
+	movl	%eax, (%rbx)
+.L25:
+	movl	-1032(%rbp), %r8d
+	movl	%r8d, -1152(%rbp)
+	movl	-1152(%rbp), %r8d
+	movl	$1, %r9d
+	addl	%r9d, %r8d
+	movl	%r8d, -1156(%rbp)
+	movl	-1156(%rbp), %eax
+	movl	%eax, -1032(%rbp)                # assign int
+	jmp	.L18
+.L26:                                        # end while
+	movl	-1028(%rbp), %r8d
+	movl	%r8d, -1160(%rbp)
+	movl	-1160(%rbp), %r8d
+	movl	$1, %r9d
+	addl	%r9d, %r8d
+	movl	%r8d, -1164(%rbp)
+	movl	-1164(%rbp), %eax
+	movl	%eax, -1028(%rbp)                # assign int
+	jmp	.L14
+.L27:                                        # end while
+	movl	24(%rbp), %r8d
+	movl	%r8d, -1168(%rbp)
+	movl	40(%rbp), %r8d
+	movl	%r8d, -1172(%rbp)
+	movl	$0, %ecx
+	imull	$16, %ecx
+	movl	-1168(%rbp), %r8d
+	addl	%r8d, %ecx
+	imull	$16, %ecx
+	movl	-1172(%rbp), %r8d
+	addl	%r8d, %ecx
+	movslq	%ecx, %rcx
+	movl	-1024(%rbp, %rcx, 4), %eax
+	movl	%eax, -1176(%rbp)
+	movl	-1176(%rbp), %eax
 	leave
 	ret
 
@@ -810,7 +702,7 @@ longest_common_subseq:
 main:
 	pushq	%rbp
 	movq	%rsp, %rbp
-	subq	$60, %rsp
+	subq	$176, %rsp                       # fixed frame size
 	movl	$8, -60(%rbp)
 	movl	$7, -56(%rbp)
 	movl	$4, -52(%rbp)
@@ -826,7 +718,6 @@ main:
 	movl	$3, -12(%rbp)
 	movl	$7, -8(%rbp)
 	movl	$0, -4(%rbp)
-	subq	$52, %rsp
 	movl	$3, -112(%rbp)
 	movl	$9, -108(%rbp)
 	movl	$7, -104(%rbp)
@@ -840,54 +731,35 @@ main:
 	movl	$0, -72(%rbp)
 	movl	$1, -68(%rbp)
 	movl	$5, -64(%rbp)
-	subq	$8, %rsp
 	leaq	-60(%rbp), %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp                         # align stack
-	subq	$8, %rsp		                 # param 1
-	movq	$15, (%rsp)
-	subq	$8, %rsp		                 # param 0
+	movq	%r8, -120(%rbp)
+	movq	$15, 8(%rsp)                     # param 1
 	movq	-120(%rbp), %r8
-	movq	%r8, (%rsp)
+	movq	%r8, 0(%rsp)                     # param 0
 	call	max_sum_nonadjacent
-
-	addq	$16, %rsp
-	subq	$4, %rsp
-	movl	%eax, -132(%rbp)
-	subq	$12, %rsp                        # align stack
-	leaq	__fmt_string0(%rip), %rdi		# printf
-	movl	-132(%rbp), %r8d
+	movl	%eax, -124(%rbp)
+	leaq	__fmt_string0(%rip), %rdi        # param 0
+	movl	-124(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, %rsi
+	movq	%r8, %rsi                        # param 1
 	call	printf
-	subq	$8, %rsp
 	leaq	-60(%rbp), %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp
+	movq	%r8, -132(%rbp)
 	leaq	-112(%rbp), %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp		                 # param 3
-	movq	$13, (%rsp)
-	subq	$8, %rsp		                 # param 2
-	movq	-160(%rbp), %r8
-	movq	%r8, (%rsp)
-	subq	$8, %rsp		                 # param 1
-	movq	$15, (%rsp)
-	subq	$8, %rsp		                 # param 0
-	movq	-152(%rbp), %r8
-	movq	%r8, (%rsp)
+	movq	%r8, -140(%rbp)
+	movq	$13, 24(%rsp)                    # param 3
+	movq	-140(%rbp), %r8
+	movq	%r8, 16(%rsp)                    # param 2
+	movq	$15, 8(%rsp)                     # param 1
+	movq	-132(%rbp), %r8
+	movq	%r8, 0(%rsp)                     # param 0
 	call	longest_common_subseq
-
-	addq	$32, %rsp
-	subq	$4, %rsp
-	movl	%eax, -164(%rbp)
-	subq	$12, %rsp                        # align stack
-	leaq	__fmt_string1(%rip), %rdi		# printf
-	movl	-164(%rbp), %r8d
+	movl	%eax, -144(%rbp)
+	leaq	__fmt_string1(%rip), %rdi        # param 0
+	movl	-144(%rbp), %r8d
 	movsxd	%r8d, %r8
-	movq	%r8, %rsi
+	movq	%r8, %rsi                        # param 1
 	call	printf
 	movl	$0, %eax
 	leave
 	ret
-

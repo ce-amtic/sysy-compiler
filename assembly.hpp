@@ -4,6 +4,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include "ast.hpp"
+#include "compiler.hpp"
 
 // const char *fmt1d = "fmt1d:\t.string \"%%d\"";
 // const char *fmt1c = "fmt1c:\t.string \"%%c\"";
@@ -16,8 +17,8 @@ struct Assembly
     void append(const char *format, ...);
     void comment(const char *message);
     void print(FILE *file);
-    void alignStack(int &offset);
-    int saveReg(const char *reg, int &offset);
+    // void alignStack(CompileState &comp);
+    int saveReg(const char *reg, CompileState &comp);
     void loadReg(Exp *exp, const char *reg, bool loadAddress = false);
 
     int ln();
@@ -27,12 +28,21 @@ struct Assembly
     void modLine(int line, const char *format, ...);
     void appendLine(int line, const char *format, ...);
 
+    void assignFrame(int line, CompileState &comp);
+
 private:
     std::vector<std::string> code;
     int labelIndex;
     void removeBr(int line);
     void addSpacesBeforeHash(std::string &input);
 } rodata, data, bss, text;
+
+void Assembly::assignFrame(int line, CompileState &comp)
+{
+    int pof = comp.getPeakOffset();
+    int alignedSize = (pof + 15) / 16 * 16;
+    modLine(line, "\tsubq\t$%d, %%rsp # fixed frame size", alignedSize);
+}
 
 void Assembly::addSpacesBeforeHash(std::string &input)
 {
@@ -83,7 +93,7 @@ void Assembly::comment(const char *message)
 {
     removeBr(ln());
     auto &c = code.back();
-    c += "\t\t# ";
+    c += " # ";
     c += message;
     c += "\n";
 }
@@ -109,22 +119,22 @@ int Assembly::ln()
     return code.size() - 1;
 }
 
-void Assembly::alignStack(int &offset)
-{
-    int padding = (16 - abs(offset) % 16) % 16;
-    if (padding == 0)
-        return;
-    offset -= padding;
-    append("\tsubq\t$%d, %%rsp  # align stack\n", padding);
-    // append("\tleaq\t(%%rbp), %%r8\n");
-    // append("\tleaq\t(%%rsp), %%r9\n");
-    // append("\tsubq\t%%r9, %%r8\n");
-    // append("\tandq\t$16, %%r8\n");
-    // append("\tmovq\t$16, %%r9\n");
-    // append("\tsubq\t%%r8, %%r9\n");
-    // append("\tandq\t$16, %%r9\n");
-    // append("\tsubq\t%%r9, %%rsp # align stack\n");
-}
+// void Assembly::alignStack(CompileState &comp)
+// {
+//     int padding = (16 - abs(comp.getOffset()) % 16) % 16;
+//     if (padding == 0)
+//         return;
+//     comp.updateOffset(-padding); // offset -= padding; append("\tsubq\t$%d, %%rsp  # align stack\n", padding);
+
+//     //  append("\tleaq\t(%%rbp), %%r8\n");
+//     //  append("\tleaq\t(%%rsp), %%r9\n");
+//     //  append("\tsubq\t%%r9, %%r8\n");
+//     //  append("\tandq\t$16, %%r8\n");
+//     //  append("\tmovq\t$16, %%r9\n");
+//     //  append("\tsubq\t%%r8, %%r9\n");
+//     //  append("\tandq\t$16, %%r9\n");
+//     //  append("\tsubq\t%%r9, %%rsp # align stack\n");
+// }
 
 void Assembly::loadReg(Exp *exp, const char *reg, bool loadAddress)
 {
@@ -176,12 +186,13 @@ void Assembly::removeBr(int line)
         code[line].pop_back();
 }
 
-int Assembly::saveReg(const char *reg, int &offset)
+int Assembly::saveReg(const char *reg, CompileState &comp)
 {
-    offset -= 4;
-    text.append("\tsubq\t$4, %%rsp\n");
-    text.append("\tmovl\t%s, %d(%%rbp)\n", reg, offset);
-    return offset;
+    // offset -= 4;
+    // text.append("\tsubq\t$4, %%rsp\n");
+    comp.updateOffset(-4);
+    text.append("\tmovl\t%s, %d(%%rbp)\n", reg, comp.getOffset());
+    return comp.getOffset();
 }
 
 void Assembly::append(const char *format, ...)
