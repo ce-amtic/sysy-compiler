@@ -13,19 +13,19 @@ int inc_a()
 int main()
 {
     int k = 5;
-    while (k >= 0)
-    {
-        if (inc_a() && inc_a() && inc_a())
-        {
+    while (k >= 0) 
+	{
+        if (inc_a() && inc_a() && inc_a()) 
+		{
             printf("%d %d\n", a, b);
         }
-        if (inc_a() < 14 || inc_a() && inc_a() - inc_a() + 1)
-        {
+        if (inc_a() < 14 || inc_a() && inc_a() - inc_a() + 1) 
+		{
             printf("%d\n", a);
             b = b * 2;
-        }
-        else
-        {
+        } 
+		else 
+		{
             inc_a();
         }
         k = k - 1;
