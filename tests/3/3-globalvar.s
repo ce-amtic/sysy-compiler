@@ -8,19 +8,16 @@ __fmt_string0:	.string "%d\n"
 	.type	a0, @object
 	.size	a0, 12
 a0:
-	.long	0
-	.long	0
-	.long	0
+	.zero	12
 	.globl	b0
 	.data
 	.align	4
 	.type	b0, @object
 	.size	b0, 16
 b0:
-	.long	0
+	.zero	4
 	.long	1
-	.long	0
-	.long	0
+	.zero	8
 	.globl	c0
 	.data
 	.align	4
@@ -40,17 +37,7 @@ c0:
 	.type	d0, @object
 	.size	d0, 44
 d0:
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	44
 	.globl	e0
 	.data
 	.align	4
@@ -65,12 +52,7 @@ e0:
 	.type	f0, @object
 	.size	f0, 24
 f0:
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	24
 	.globl	g0
 	.data
 	.align	4
@@ -78,14 +60,10 @@ f0:
 	.size	g0, 36
 g0:
 	.long	85
-	.long	0
+	.zero	4
 	.long	1
 	.long	29
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	20
 	.globl	scj82c9s0j
 	.data
 	.align	4
@@ -99,42 +77,14 @@ scj82c9s0j:
 	.type	a, @object
 	.size	a, 60
 a:
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	60
 	.globl	b
 	.data
 	.align	4
 	.type	b, @object
 	.size	b, 60
 b:
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	60
 	.globl	c
 	.data
 	.align	4
@@ -204,11 +154,7 @@ e:
 	.type	f, @object
 	.size	f, 20
 f:
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	20
 	.globl	g
 	.data
 	.align	4
@@ -219,26 +165,20 @@ g:
 	.long	2
 	.long	3
 	.long	4
-	.long	0
-	.long	0
+	.zero	8
 	.long	7
-	.long	0
-	.long	0
+	.zero	8
 	.long	10
 	.long	11
 	.long	12
-	.long	0
-	.long	0
-	.long	0
+	.zero	12
 	.globl	h
 	.data
 	.align	4
 	.type	h, @object
 	.size	h, 12
 h:
-	.long	0
-	.long	0
-	.long	0
+	.zero	12
 	.globl	i
 	.data
 	.align	4
@@ -249,50 +189,9 @@ i:
 	.long	2
 	.long	3
 	.long	4
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	32
 	.long	5
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
-	.long	0
+	.zero	140
 
 .section .bss
 

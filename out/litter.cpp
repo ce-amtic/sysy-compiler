@@ -7,6 +7,18 @@
 // if(!strcmp(arg0, "\"%d %d\\n\"")) fmt_str = "fmt2dn";
 // assert(fmt_str != nullptr);
 
+
+            if(compiler.getLevel() == 0) {
+            } 
+            else{
+                compiler.updateOffset(-4 * $2->size);
+                for(int i = 0; i < values.size(); i++){
+                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4*i);
+                }
+                Symbol* sym = new Symbol(Type::CONST_ARRAY, compiler.getOffset(), compiler.getLevel(), values, $2->sizes);
+                compiler.insertSymbol($1, sym);
+            }
+
 else if (sym->type != Type::INT_ARRAY && sym->type != Type::CONST_ARRAY && sym->type != Type::POINTER)
 {
     sprintf(msg, "subscripted value '%s' is not an array", varName);

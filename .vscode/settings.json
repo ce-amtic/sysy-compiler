@@ -46,5 +46,6 @@
     "cinttypes": "c",
     "typeinfo": "c",
     "bit": "c"
-  }
+  },
+  "conventionalCommits.scopes": ["lexer"]
 }

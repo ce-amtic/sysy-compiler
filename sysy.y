@@ -22,9 +22,9 @@ void exitFunc(int frameLine);
 void handleIO(const char *func, ParamList* params);
 int calculateOffsetInArray(Symbol* sym, ExpDims* dims);
 void calculateOffsetInArray(Symbol* sym, ExpDims* dims, Assembly& txt);
+void asmInit();
+void asmPrint(FILE *file);
 template <typename T> std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b);
-void asm_init();
-void asm_print(FILE *file);
 
 void yyerror(const char *s);
 int yylex(void);
@@ -140,25 +140,28 @@ ConstDef: Ident ASSIGN ConstExp {
         } else {
             std::vector<int> values;
             $4->dfsArray($2->sizes, values);
-            if(compiler.getLevel() == 0) {
-                rodata.append("\n.align\t4\n");
-                rodata.append(".type\t%s, @object\n", $1);
-                rodata.append(".size\t%s, %d\n", $1, $2->size*4);
-                rodata.append("%s:\n", $1);
-                for(auto x: values){
-                    rodata.append("\t.long\t%d\n", x);
+            // const variables should be static
+            rodata.append("\n.align\t4\n");
+            rodata.append(".type\t%s, @object\n", $1);
+            rodata.append(".size\t%s, %d\n", $1, $2->size*4);
+            rodata.append("%s:\n", $1);
+            int zeros = 0;
+            for(auto x: values) {
+                if(x == 0) {
+                    zeros++;
+                    continue;
                 }
-                Symbol* sym = new Symbol(Type::CONST_ARRAY, 0, compiler.getLevel(), values, $2->sizes);
-                compiler.insertSymbol($1, sym);
-            } 
-            else{
-                compiler.updateOffset(-4 * $2->size);
-                for(int i = 0; i < values.size(); i++){
-                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4*i);
+                if(zeros > 0) {
+                    rodata.append("\t.zero\t%d\n", zeros*4);
+                    zeros = 0;
                 }
-                Symbol* sym = new Symbol(Type::CONST_ARRAY, compiler.getOffset(), compiler.getLevel(), values, $2->sizes);
-                compiler.insertSymbol($1, sym);
+                rodata.append("\t.long\t%d\n", x);
             }
+            if(zeros > 0) {
+                rodata.append("\t.zero\t%d\n", zeros*4);
+            }
+            Symbol* sym = new Symbol(Type::CONST_ARRAY, 0, compiler.getLevel(), values, $2->sizes);
+            compiler.insertSymbol($1, sym);
         }
     };
 ConstDims: LBRACKET ConstExp RBRACKET {
@@ -241,16 +244,15 @@ VarDef: Ident {
             data.append("\t.type\t%s, @object\n", $1);
             data.append("\t.size\t%s, %d\n", $1, $2->size*4);
             data.append("%s:\n", $1);
-            for(int i=0; i<$2->size; i++){
-                data.append("\t.long\t0\n");
-            }
+            data.append("\t.zero\t%d\n", $2->size*4);
             Symbol *sym = new Symbol(Type::INT_ARRAY, 0, compiler.getLevel(), $2->sizes);
             compiler.insertSymbol($1, sym);
         } else {
             compiler.updateOffset(-4 * $2->size);
-            for(int i = 0; i < $2->size; i++) {
-                text.append("\tmovl\t$0, %d(%%rbp)\n", compiler.getOffset() + 4*i);
-            }
+            // do not initialize array
+            // for(int i = 0; i < $2->size; i++) {
+            //     text.append("\tmovl\t$0, %d(%%rbp)\n", compiler.getOffset() + 4*i);
+            // }
             Symbol *sym = new Symbol(Type::INT_ARRAY, compiler.getOffset(), compiler.getLevel(), $2->sizes);
             compiler.insertSymbol($1, sym);
         }
@@ -297,8 +299,20 @@ VarDef: Ident {
                 std::vector<bool> isConsts;
                 std::vector<int> values;
                 $4->dfsArray($2->sizes, isConsts, values);
+                int zeros = 0;
                 for(int i = 0; i < values.size(); i++) {
+                    if(values[i] == 0) {
+                        zeros++;
+                        continue;
+                    }
+                    if(zeros > 0) {
+                        data.append("\t.zero\t%d\n", zeros*4);
+                        zeros = 0;
+                    }
                     data.append("\t.long\t%d\n", values[i]);
+                }
+                if(zeros > 0) {
+                    data.append("\t.zero\t%d\n", zeros*4);
                 }
                 Symbol *sym = new Symbol(Type::INT_ARRAY, 0, compiler.getLevel(), $2->sizes);
                 compiler.insertSymbol($1, sym);
@@ -309,14 +323,16 @@ VarDef: Ident {
         } else {
             std::vector<bool> isConsts;
             std::vector<int> values;
-            $4->dfsArray($2->sizes, isConsts, values);
-            compiler.updateOffset(-4 * $2->size);
-            for(int i = 0; i < $2->size; i++) {
-                if(isConsts[i]) {
-                    text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4 * i);
-                } else {
-                    text.append("\tmovl\t%d(%%rbp), %%eax\n", values[i]);
-                    text.append("\tmovl\t%%eax, %d(%%rbp)\n", compiler.getOffset() + 4 * i);
+            if(!$4->nexts.empty()){   
+                $4->dfsArray($2->sizes, isConsts, values);
+                compiler.updateOffset(-4 * $2->size);
+                for(int i = 0; i < $2->size; i++) {
+                    if(isConsts[i]) {
+                        text.append("\tmovl\t$%d, %d(%%rbp)\n", values[i], compiler.getOffset() + 4 * i);
+                    } else {
+                        text.append("\tmovl\t%d(%%rbp), %%eax\n", values[i]);
+                        text.append("\tmovl\t%%eax, %d(%%rbp)\n", compiler.getOffset() + 4 * i);
+                    }
                 }
             }
             Symbol *sym = new Symbol(Type::INT_ARRAY, compiler.getOffset(), compiler.getLevel(), $2->sizes);
@@ -1229,7 +1245,7 @@ LOrExp: LAndExp {
 
 /* main */
 int main() {
-    asm_init();
+    asmInit();
 
     detail_fp = fopen("plot/detail.txt", "w");
     yyparse();
@@ -1237,7 +1253,7 @@ int main() {
 
     // FILE *fp = fopen("out/output.s", "w");
     FILE *asm_fp = stdout;
-    asm_print(asm_fp);
+    asmPrint(asm_fp);
     fclose(asm_fp);
 
     return 0;
@@ -1343,13 +1359,13 @@ std::vector<T> mergeVector(const std::vector<T>& a, const std::vector<T>& b) {
     return res;
 }
 
-void asm_init() {
+void asmInit() {
     rodata.append(".section .rodata\n");
     data.append(".section .data\n");
     bss.append(".section .bss\n");
     text.append(".section .text\n");
 }
-void asm_print(FILE *file) {
+void asmPrint(FILE *file) {
     rodata.print(file);
     fprintf(file, "\n");
     data.print(file);
