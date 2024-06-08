@@ -11,8 +11,7 @@ lex.yy.cpp: sysy.l
 	flex -o lex.yy.cpp --noyywrap sysy.l
 
 clean:
-	rm -f parser sysy.tab.* lex.yy.* *.o testflex *.output
-
+	rm -f parser sysy.tab.* lex.yy.* *.o testflex *.output out/*.s out/prog
 # plot:
 # 	./parser < tests/7/7-side_effect.c > ./plot/detail.txt
 # 	sh ./plot/run.sh
