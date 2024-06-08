@@ -22,8 +22,6 @@ struct Assembly
     int newLabel();
 
     void modLine(int line, const char *format, ...);
-    void appendLine(int line, const char *format, ...);
-
     void assignFrame(int line, CompileState &comp);
 
 private:
@@ -54,20 +52,6 @@ void Assembly::addSpacesBeforeHash(std::string &input)
             input.insert(hashPos, spacesToAdd, ' ');
     }
     return;
-}
-void Assembly::appendLine(int line, const char *format, ...)
-{
-    va_list args;
-    va_start(args, format);
-    char buffer[512];
-    memset(buffer, 0, sizeof(buffer));
-    vsnprintf(buffer, 512, format, args);
-    va_end(args);
-    int len = strlen(buffer);
-    if (buffer[len - 1] != '\n')
-        buffer[len] = '\n';
-    removeBr(line);
-    code[line] += std::string(buffer);
 }
 void Assembly::modLine(int line, const char *format, ...)
 {

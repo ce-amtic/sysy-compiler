@@ -533,28 +533,20 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         text.comment("end while");
         text.backPatch($5->falseList, $7->label);
         text.backPatch($7->trueList, endWhile);
-        for(auto t: breaks.back()) {
-            // text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
-            text.appendLine(t.line, "%d", endWhile);
-        }
+        text.backPatch(breaks.back(), endWhile);
         breaks.prevLevel();
-        for(auto t: continues.back()) {
-            // text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
-            text.appendLine(t.line, "%d", $2->label);
-        }
+        text.backPatch(continues.back(), $2->label);
         continues.prevLevel();
     }
     | BREAK SEMICOLON {
         fprintf(detail_fp, "break ; -> Stmt\n");
-        text.append("");
         text.append("\tjmp\t.L");
-        breaks.push(text.ln(), compiler.getOffset());
+        breaks.push(text.ln());
     }
     | CONTINUE SEMICOLON {
         fprintf(detail_fp, "continue ; -> Stmt\n");
-        text.append("");
         text.append("\tjmp\t.L");
-        continues.push(text.ln(), compiler.getOffset());
+        continues.push(text.ln());
     }
     | LVal ASSIGN Exp SEMICOLON { // assign statements
         fprintf(detail_fp, "LVal = Exp ; -> Stmt\n");

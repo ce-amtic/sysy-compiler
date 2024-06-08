@@ -42,23 +42,16 @@ private:
     Symbols symbols;
 };
 
-struct RuntimeState
-{
-    int line;
-    int offset;
-    RuntimeState() {}
-    RuntimeState(int line, int offset) : line(line), offset(offset) {}
-};
 struct RuntimeStack
 {
-    void push(int line, int offset);
+    void push(int line);
     void pop();
     void nextLevel();
     void prevLevel();
-    std::vector<RuntimeState> &back();
+    std::vector<int> &back();
 
 private:
-    std::vector<std::vector<RuntimeState>> states;
+    std::vector<std::vector<int>> states;
 };
 
 /* implements */
@@ -140,9 +133,9 @@ void CompileState::insertSymbol(char *name, Symbol *sym)
     symbols.insert(name, sym);
 }
 
-void RuntimeStack::push(int line, int offset)
+void RuntimeStack::push(int line)
 {
-    states.back().push_back(RuntimeState(line, offset));
+    states.back().push_back(line);
 }
 void RuntimeStack::pop()
 {
@@ -150,13 +143,13 @@ void RuntimeStack::pop()
 }
 void RuntimeStack::nextLevel()
 {
-    states.push_back(std::vector<RuntimeState>());
+    states.push_back(std::vector<int>());
 }
 void RuntimeStack::prevLevel()
 {
     states.pop_back();
 }
-std::vector<RuntimeState> &RuntimeStack::back()
+std::vector<int> &RuntimeStack::back()
 {
     return states.back();
 }
