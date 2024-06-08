@@ -221,6 +221,7 @@ VarDef: Ident {
             data.append("\t.align\t4\n");
             data.append("\t.type\t%s, @object\n", $1);
             data.append("\t.size\t%s, 4\n", $1);
+            data.append("%s:\n", $1);
             data.append("\t.long\t0\n");
             Symbol *sym = new Symbol(Type::INT, 0, compiler.getLevel());
             compiler.insertSymbol($1, sym);
@@ -392,6 +393,7 @@ FuncName: INT Ident {
             text.append("\t.globl\t%s\n", $2);
             text.append("\t.type\t%s, @function\n", $2);
             text.append("%s:\n", $2);
+            $$ = sym;
         }
     };
 EnterFunc: {
@@ -459,6 +461,7 @@ FuncIdentDims: LBRACKET RBRACKET  {
         if($2->isConst) {
             $$->size = 1;
             $$->sizes.push_back($2->value);
+            fprintf(stderr, "size: %d\n", $2->value);
         } else {
             sprintf(msg, "variable-sized object may not be initialized");
             yyerror(msg);
@@ -515,12 +518,12 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
         text.backPatch($5->falseList, $7->label);
         text.backPatch($7->trueList, endWhile);
         for(auto t: breaks.back()) {
-            text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
+            // text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
             text.appendLine(t.line, "%d", endWhile);
         }
         breaks.prevLevel();
         for(auto t: continues.back()) {
-            text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
+            // text.modLine(t.line - 1, "\taddq\t$%d, %%rsp\n", compiler.getOffset() - t.offset);
             text.appendLine(t.line, "%d", $2->label);
         }
         continues.prevLevel();
@@ -571,7 +574,7 @@ Stmt: IF LPAREN Cond RPAREN NewLabel EnterStmt Stmt ExitStmt %prec IFX {
             text.loadReg($3, "%eax");
             if(sym->level == 0) { // on .data
                 // [$1->text](%rip, %rcx, 4)
-                text.append("\tleaq\t%s(%%rip), %%r8\n", $1);
+                text.append("\tleaq\t%s(%%rip), %%r8\n", varName);
                 text.append("\tleaq\t(%%r8, %%rcx, 4), %%rbx # assign int_array\n"); // %rbx holds the address
                 text.append("\tmovl\t%%eax, (%%rbx)\n");
             } else { // on stack

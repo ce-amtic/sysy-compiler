@@ -56,6 +56,36 @@ void error(char* yytext) {
     colNum += len;
     if(DEBUG) fprintf(stderr, "ERROR: CANNOT INTERPRET %s\n", yytext);
 }
+int btoi(char* yytext) { // binary to int
+    int len = strlen(yytext);
+    int res = 0;
+    for(int i = 2; i < len; i++) {
+        res = res * 2 + (yytext[i] - '0');
+    }
+    return res;
+}
+int otoi(char* yytext) { // octal to int
+    int len = strlen(yytext);
+    int res = 0;
+    for(int i = 1; i < len; i++) {
+        res = res * 8 + (yytext[i] - '0');
+    }
+    return res;
+}
+int xtoi(char* yytext) { // hex to int
+    int len = strlen(yytext);
+    int res = 0;
+    for(int i = 2; i < len; i++) {
+        if(yytext[i] >= '0' && yytext[i] <= '9') {
+            res = res * 16 + (yytext[i] - '0');
+        } else if(yytext[i] >= 'a' && yytext[i] <= 'f') {
+            res = res * 16 + (yytext[i] - 'a' + 10);
+        } else if(yytext[i] >= 'A' && yytext[i] <= 'F') {
+            res = res * 16 + (yytext[i] - 'A' + 10);
+        }
+    }
+    return res;
+}
 %}
 
 IDENT [a-zA-Z_][a-zA-Z0-9_]*
@@ -110,11 +140,12 @@ IDENT [a-zA-Z_][a-zA-Z0-9_]*
 <IN_COMMENT>. {colNum += 1;}
 <IN_COMMENT>"*/" {BEGIN(INITIAL);} 
 
-[-+]*0[bB][01]+ {constant(yytext); yylval.num = atoi(yytext); return Number;}
-[-+]*0[0-7]+ {constant(yytext); yylval.num = atoi(yytext); return Number;}
-[-+]*[1-9][0-9]* {constant(yytext); yylval.num = atoi(yytext); return Number;}
-[-+]*0[xX][0-9a-fA-F]+ {constant(yytext); yylval.num = atoi(yytext); return Number;}
-[-+]*0 {constant(yytext); yylval.num = atoi(yytext); return Number;}
+0[bB][01]+ {constant(yytext); yylval.num = btoi(yytext); return Number;}
+0[0-7]+ {constant(yytext); yylval.num = otoi(yytext); return Number;}
+[1-9][0-9]* {constant(yytext); yylval.num = atoi(yytext); return Number;}
+0[xX][0-9a-fA-F]+ {constant(yytext); yylval.num = xtoi(yytext); return Number;}
+0 {constant(yytext); yylval.num = atoi(yytext); return Number;}
+[0-9]"e"[0-9]+ {constant(yytext); yylval.num = atoi(yytext); return Number;}
 \"([^\\"]|\\.)*\" {constant(yytext); yylval.str = strdup(yytext); return String;}
 
 {IDENT} {identifier(yytext); yylval.str = strdup(yytext); return Ident;}
