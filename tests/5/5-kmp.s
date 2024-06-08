@@ -4433,7 +4433,7 @@ read_str:
 	je	.L31
 	jmp	.L32
 .L31:
-	addq	$-8, %rsp
+
 	jmp	.L33
 .L32:                                        # endif
 	movl	-4(%rbp), %r8d
